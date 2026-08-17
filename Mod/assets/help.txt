@@ -1,0 +1,83 @@
+# LivingBase Spawn Menu
+
+A categorized, clickable companion to LivingBase's keyboard-driven placement system. Everything
+here mirrors a real LivingBase key or console command -- nothing in this window does anything
+LivingBase couldn't already do, it just gives you a browsable list and precise nudging instead of
+cycling through a roster one press at a time.
+
+# Spawn Tree (left side)
+
+Click any entry in the tree to SELECT it -- the tree highlights your selection, and the
+Spawn/Replace buttons below it become active.
+
+- Spawn: places a new copy of the selected entry in front of you, same as pressing that roster's
+  numpad key enough times to cycle to it.
+- Replace: swaps whatever object is currently targeted or target-locked for the selected entry,
+  in the exact same spot. More precise than the old ]/[ cycle keys -- you can jump directly to
+  any specific look instead of stepping through the roster one at a time.
+- Refresh: re-reads spawn_menu.ini from disk, in case it changed (new config.lua entries, or a
+  hand-edit to the file itself).
+
+# Live Edit Panel (right side)
+
+- Selected Target: shows whatever is currently target-locked (Num +). Hover it if the name is
+  truncated to see the full name.
+- In-Game Keys: mirrors the in-game Insert key -- turns LivingBase's OWN keyboard keys
+  (placement/live-edit/cycle/clear) on/off. Off by default each session. Does NOT affect this
+  panel's own buttons below, which work regardless -- the GUI is independent of this toggle by
+  design. Stays clickable even when off, or there'd be no way to turn keys back on.
+- Forward / Left / Right / Backward: slide the targeted object, same as the arrow keys. Hold to
+  keep moving -- these are real held-repeat buttons, unlike the same keys used in-game.
+- Up / Down: raise/lower, same as PageUp/PageDown.
+- Flip 180: rotate the target 180 degrees in one press, same as Num*.
+- Rot L / Rot R: rotate left/right by a step, same as , and . .
+- Coords: opens a precise coordinate editor for the current target (see below). Only enabled
+  while something is target-locked.
+- Precision: scales how far Up/Down/slide move per press (rotation is unaffected). 1x is the
+  everyday default; 1/8 through 1/2 are finer, 2x/4x are coarser.
+- Despawn: removes the targeted object, same as Num9.
+- Undo: restores the last despawn, same as Num0.
+- Delete All: despawns EVERYTHING LivingBase has placed. Asks for confirmation first -- this
+  cannot be undone.
+
+# Target Lock
+
+Press Num + (in-game, or with this window focused) to lock onto whatever's in front of you --
+every button above then acts on that object specifically, even after you walk away or look
+elsewhere. Press Num + again while looking at something DIFFERENT to move the lock straight to
+it, no need to unlock first. Press Num + while still looking at the same object (or nothing new)
+to release the lock.
+
+# Coords Window
+
+Opens a small editor with the target's exact X, Y, Z, and Rotation as editable numbers (Rotation is
+shown as 0-359 degrees, not Unreal's native -180 to 180). Typing doesn't move anything by itself --
+only these four buttons do:
+
+- Preview: moves the object to whatever you've typed, without closing the window. Keep adjusting
+  and previewing as many times as you like.
+- Apply: same as Preview, but closes the window -- the "I'm done" button.
+- Reset: moves the object back to wherever it was when this window opened, and resets the fields
+  to match. Window stays open.
+- Cancel (or the window's own close button): moves the object back to its opening position and
+  closes.
+
+If you lock onto a different object -- or release the lock entirely -- while this window is open,
+it closes itself without moving anything, since there's no longer a safe way to know which object
+your typed values were meant for.
+
+While the Coords window is open, the target-lock's normal "walked too far away, release the lock"
+check is suspended, so a typo in a coordinate can't strand you locked onto something that just
+flew off into the distance. It resumes the instant the window closes, however it closes.
+
+# Opening/Focusing This Window (in-game)
+
+- '-': opens/closes this window. Starts closed each session.
+- '=': steals OS focus for this window (only if it's already open) -- handy after '-' opens it, so
+  your next click lands here instead of needing an extra click just to switch windows first.
+
+# Keyboard Shortcuts (while this window has focus)
+
+Arrows = slide, PageUp/PageDown = height, , and . = rotate, Num + = target lock. These go through
+Windows' own key-repeat, so holding one works exactly like a held button -- unlike the same keys
+used in-game, where this UE4SS build silently drops most held-key repeats.
