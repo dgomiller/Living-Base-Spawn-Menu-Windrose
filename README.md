@@ -11,7 +11,7 @@ files that LivingBase's own Lua side reads and acts on; this mod is UI only. See
 
 ## Requirements
 
-- **LivingBase** *(repo link TBD)* installed and enabled — this mod has nothing to do without it.
+- **[LivingBase](https://github.com/dgomiller/Living-Base-Enhanced-Windrose)** installed and enabled — this mod has nothing to do without it.
 - UE4SS (RE-UE4SS build) with the same `[EngineVersionOverride] MajorVersion=5, MinorVersion=6` LivingBase
   itself requires.
 
