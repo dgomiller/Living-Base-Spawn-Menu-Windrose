@@ -74,3 +74,7 @@ part (Nexus Mods' own Donation Points system is exempt).
 This covers this mod's own code only. **Windrose** and its game assets, class names, and intellectual
 property belong to Kraken Express — this is an unofficial, unaffiliated mod. UE4SS/RE-UE4SS (the
 `RE-UE4SS` submodule) is a separate open-source project with its own license.
+
+## Credits
+
+Built iteratively with Claude.
