@@ -1,21 +1,31 @@
 Copyright (c) 2026 RedFalcon
 
-This work is licensed under the Creative Commons Attribution-ShareAlike 4.0
-International License (CC BY-SA 4.0).
+All rights reserved, except for the specific permissions granted below.
+Nothing beyond what is explicitly listed here is implied or granted.
 
-To view a copy of this license, visit
-https://creativecommons.org/licenses/by-sa/4.0/
-or see the full legal code at
-https://creativecommons.org/licenses/by-sa/4.0/legalcode
+Permitted, without needing to ask first:
 
-In short: you are free to use, modify, and redistribute this work, including
-commercially, as long as you:
+1. Modify this project for your own personal use.
+2. Reuse this project's code in your own separate project, as long as
+   you credit the original author(s).
+3. Convert or port this project to other games, as long as you credit
+   the original author(s).
 
-1. Give appropriate credit to the original author(s), and
-2. Distribute any modified/derivative version under this same license.
+Not permitted:
 
-This license covers this mod's own code only. Windrose and its game assets,
-class names, and intellectual property belong to Kraken Express; this is an
-unofficial, unaffiliated mod and is not covered by this license. UE4SS/RE-UE4SS
-(the `RE-UE4SS` submodule) is a separate open-source project with its own
-license.
+1. Reuploading or rehosting this project - modified or unmodified - on
+   any site or page other than the copyright holder's own. If you build
+   something on top of this project, link back to the original instead
+   of rehosting it.
+2. Selling this project, or using it in anything sold or monetized, in
+   whole or in part. (This does not apply to Nexus Mods' own Donation
+   Points system, which is Nexus's own charity-linked mechanism and not
+   third-party monetization.)
+
+All other rights are reserved by the copyright holder.
+
+This license covers this mod's own code only. Windrose and its game
+assets, class names, and intellectual property belong to Kraken
+Express; this is an unofficial, unaffiliated mod and is not covered by
+this license. UE4SS/RE-UE4SS (the `RE-UE4SS` submodule) is a separate
+open-source project with its own license.

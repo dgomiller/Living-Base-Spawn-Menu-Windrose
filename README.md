@@ -61,9 +61,15 @@ for a combined 2.0.0+ release.
 
 ## License
 
-Licensed under **[Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/)
-(CC BY-SA 4.0)** — see [`LICENSE`](LICENSE). Use, modify, and redistribute freely, including commercially,
-as long as you (1) credit the original author(s), and (2) release your own version under this same license.
+**All rights reserved by default**, except for the specific permissions in [`LICENSE`](LICENSE) — nothing
+beyond what's listed there is implied.
+
+**Permitted, without needing to ask:** modify for personal use; reuse this project's code in your own
+separate project, with credit; convert/port to other games, with credit.
+
+**Not permitted:** reuploading/rehosting this project (modified or unmodified) anywhere other than the
+original author's own page(s)/repo(s); selling it or using it in anything sold or monetized, in whole or in
+part (Nexus Mods' own Donation Points system is exempt).
 
 This covers this mod's own code only. **Windrose** and its game assets, class names, and intellectual
 property belong to Kraken Express — this is an unofficial, unaffiliated mod. UE4SS/RE-UE4SS (the
