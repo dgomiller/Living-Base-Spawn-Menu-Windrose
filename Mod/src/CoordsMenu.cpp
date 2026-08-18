@@ -30,53 +30,65 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
             f << line << "\n";
         }
         auto queueAction(const char* name) -> void { queueLine(std::string("ACTION:") + name); }
-        auto queueCoordsMove(float x, float y, float z, float yaw) -> void
+        // Wire order is x:y:z:pitch:yaw:roll (main.lua's own COORDS_MOVE parsing) -- rotY=Pitch,
+        // rotZ=Yaw, rotX=Roll in THIS window's X/Y/Z labeling (matches MoveMenu's same
+        // Roll/Pitch/Yaw convention), so the argument order here doesn't match the wire order;
+        // that's intentional, not a bug -- the wire format uses Unreal's own field names, the UI
+        // uses the X/Y/Z convention RedFalcon's mockup asked for.
+        auto queueCoordsMove(float x, float y, float z, float rotX, float rotY, float rotZ) -> void
         {
-            queueLine("COORDS_MOVE:" + std::to_string(x) + ":" + std::to_string(y) + ":" + std::to_string(z) + ":" + std::to_string(yaw));
+            queueLine("COORDS_MOVE:" + std::to_string(x) + ":" + std::to_string(y) + ":" + std::to_string(z)
+                + ":" + std::to_string(rotY) + ":" + std::to_string(rotZ) + ":" + std::to_string(rotX));
         }
 
         bool g_open = false;
         std::string g_opened_id;    // identity check (retarget detection) -- see MenuStatus::TargetId()'s own comment for why NOT the label
         std::string g_opened_label; // display only
-        float g_open_x{}, g_open_y{}, g_open_z{}, g_open_yaw{};
-        float g_field_x{}, g_field_y{}, g_field_z{}, g_field_yaw{};
+        float g_open_x{}, g_open_y{}, g_open_z{};
+        float g_open_rotX{}, g_open_rotY{}, g_open_rotZ{}; // Roll, Pitch, Yaw
+        float g_field_x{}, g_field_y{}, g_field_z{};
+        float g_field_rotX{}, g_field_rotY{}, g_field_rotZ{};
 
         // What we last told Lua to move the SAME object to (via Preview/Reset), and until when to
         // ignore MenuStatus's own position for "did something ELSE move this" purposes -- covers
         // the round-trip lag between writing a request and the next status poll reflecting it, so
         // that lag doesn't get misread as an external nudge and stomp the fields the user is mid-
         // typing. See the "external move" block below for the actual comparison.
-        float g_expected_x{}, g_expected_y{}, g_expected_z{}, g_expected_yaw{};
+        float g_expected_x{}, g_expected_y{}, g_expected_z{};
+        float g_expected_rotX{}, g_expected_rotY{}, g_expected_rotZ{};
         std::chrono::steady_clock::time_point g_suppress_external_until{};
 
         constexpr float kPositionEpsilon = 1.0f; // uu -- generous over float/string round-trip noise
-        constexpr float kYawEpsilon = 0.5f;      // degrees
+        constexpr float kAngleEpsilon = 0.5f;    // degrees
 
         auto NearlyEqual(float a, float b, float epsilon) -> bool { return std::fabs(a - b) <= epsilon; }
 
-        // Unreal's own FRotator normalizes Yaw into (-180, 180] -- confirmed live this reads back
-        // as e.g. -90 for what most players think of as "270 degrees," which RedFalcon found
-        // confusing ("0 to 180 to -0") in this window specifically. Normalize to [0, 360) for
-        // display/editing instead -- Unreal's SetActorRotation happily accepts a raw value like 270
-        // or even something outside a single turn (it's just Yaw going into a quaternion), so
-        // there's no need to convert BACK before sending, only when READING a value out of the
-        // engine.
-        auto NormalizeYaw360(float yaw) -> float
+        // Unreal's own FRotator normalizes each rotation component into (-180, 180] -- confirmed
+        // live this reads back as e.g. -90 for what most players think of as "270 degrees," which
+        // RedFalcon found confusing ("0 to 180 to -0") in this window specifically. Normalize to
+        // [0, 360) for display/editing instead -- Unreal's SetActorRotation happily accepts a raw
+        // value like 270 or even something outside a single turn (it's just going into a
+        // quaternion), so there's no need to convert BACK before sending, only when READING a
+        // value out of the engine. Generalized (2026-08-18) from the old Yaw-only NormalizeYaw360
+        // to cover all three rotation fields -- same math, Unreal treats Pitch/Yaw/Roll identically
+        // here, there's nothing yaw-specific about the wraparound itself.
+        auto NormalizeAngle360(float deg) -> float
         {
-            yaw = std::fmod(yaw, 360.0f);
-            if (yaw < 0.0f)
+            deg = std::fmod(deg, 360.0f);
+            if (deg < 0.0f)
             {
-                yaw += 360.0f;
+                deg += 360.0f;
             }
-            return yaw;
+            return deg;
         }
 
-        // Shortest angular distance between two yaw values, wraparound-safe regardless of which
-        // side of 0/360 each one happens to land on -- a plain fabs(a - b) would see e.g. 359 and 1
-        // as 358 degrees apart instead of the real 2, which would make the external-move check below
+        // Shortest angular distance between two angles, wraparound-safe regardless of which side
+        // of 0/360 each one happens to land on -- a plain fabs(a - b) would see e.g. 359 and 1 as
+        // 358 degrees apart instead of the real 2, which would make the external-move check below
         // misfire constantly right around the new 0/360 seam (a far more common resting rotation
-        // than the old -180/180 seam this bug would have hidden behind before).
-        auto YawDelta(float a, float b) -> float
+        // than the old -180/180 seam this bug would have hidden behind before). Generalized
+        // (2026-08-18) from the old Yaw-only YawDelta, same reasoning as NormalizeAngle360 above.
+        auto AngleDelta(float a, float b) -> float
         {
             float d = std::fmod(std::fabs(a - b), 360.0f);
             return d > 180.0f ? 360.0f - d : d;
@@ -84,13 +96,15 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
 
         // Sends the move and remembers it as "expected" so the external-move check below doesn't
         // mistake our own request's round-trip lag for something else having moved the object.
-        auto SendMove(float x, float y, float z, float yaw) -> void
+        auto SendMove(float x, float y, float z, float rotX, float rotY, float rotZ) -> void
         {
-            queueCoordsMove(x, y, z, yaw);
+            queueCoordsMove(x, y, z, rotX, rotY, rotZ);
             g_expected_x = x;
             g_expected_y = y;
             g_expected_z = z;
-            g_expected_yaw = yaw;
+            g_expected_rotX = rotX;
+            g_expected_rotY = rotY;
+            g_expected_rotZ = rotZ;
             g_suppress_external_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(800);
         }
     } // namespace
@@ -102,15 +116,21 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
         g_open_x = MenuStatus::TargetX();
         g_open_y = MenuStatus::TargetY();
         g_open_z = MenuStatus::TargetZ();
-        g_open_yaw = NormalizeYaw360(MenuStatus::TargetYaw());
+        g_open_rotX = NormalizeAngle360(MenuStatus::TargetRoll());
+        g_open_rotY = NormalizeAngle360(MenuStatus::TargetPitch());
+        g_open_rotZ = NormalizeAngle360(MenuStatus::TargetYaw());
         g_field_x = g_open_x;
         g_field_y = g_open_y;
         g_field_z = g_open_z;
-        g_field_yaw = g_open_yaw;
+        g_field_rotX = g_open_rotX;
+        g_field_rotY = g_open_rotY;
+        g_field_rotZ = g_open_rotZ;
         g_expected_x = g_open_x;
         g_expected_y = g_open_y;
         g_expected_z = g_open_z;
-        g_expected_yaw = g_open_yaw;
+        g_expected_rotX = g_open_rotX;
+        g_expected_rotY = g_open_rotY;
+        g_expected_rotZ = g_open_rotZ;
         g_suppress_external_until = std::chrono::steady_clock::now();
         g_open = true;
         queueAction("COORDS_OPEN");
@@ -147,14 +167,21 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
         if (std::chrono::steady_clock::now() >= g_suppress_external_until)
         {
             float mx = MenuStatus::TargetX(), my = MenuStatus::TargetY(), mz = MenuStatus::TargetZ();
-            float myaw = NormalizeYaw360(MenuStatus::TargetYaw());
+            float mRotX = NormalizeAngle360(MenuStatus::TargetRoll());
+            float mRotY = NormalizeAngle360(MenuStatus::TargetPitch());
+            float mRotZ = NormalizeAngle360(MenuStatus::TargetYaw());
             if (!NearlyEqual(mx, g_expected_x, kPositionEpsilon) || !NearlyEqual(my, g_expected_y, kPositionEpsilon)
-                || !NearlyEqual(mz, g_expected_z, kPositionEpsilon) || YawDelta(myaw, g_expected_yaw) > kYawEpsilon)
+                || !NearlyEqual(mz, g_expected_z, kPositionEpsilon)
+                || AngleDelta(mRotX, g_expected_rotX) > kAngleEpsilon
+                || AngleDelta(mRotY, g_expected_rotY) > kAngleEpsilon
+                || AngleDelta(mRotZ, g_expected_rotZ) > kAngleEpsilon)
             {
                 g_open_x = g_field_x = g_expected_x = mx;
                 g_open_y = g_field_y = g_expected_y = my;
                 g_open_z = g_field_z = g_expected_z = mz;
-                g_open_yaw = g_field_yaw = g_expected_yaw = myaw;
+                g_open_rotX = g_field_rotX = g_expected_rotX = mRotX;
+                g_open_rotY = g_field_rotY = g_expected_rotY = mRotY;
+                g_open_rotZ = g_field_rotZ = g_expected_rotZ = mRotZ;
             }
         }
 
@@ -170,8 +197,15 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
             ImGui::InputFloat("Y", &g_field_y);
             ImGui::SetNextItemWidth(160.0f);
             ImGui::InputFloat("Z", &g_field_z);
+            ImGui::Separator();
+            // Rotation X/Y/Z = Roll/Pitch/Yaw (2026-08-18, was a single "Rotation" = Yaw field) --
+            // same X/Y/Z convention MoveMenu's rotate rows use.
             ImGui::SetNextItemWidth(160.0f);
-            ImGui::InputFloat("Rotation", &g_field_yaw);
+            ImGui::InputFloat("Rotation X", &g_field_rotX);
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("Rotation Y", &g_field_rotY);
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("Rotation Z", &g_field_rotZ);
             ImGui::Separator();
 
             if (ImGui::Button("Reset", ImVec2(60.0f, 0.0f)))
@@ -179,8 +213,10 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
                 g_field_x = g_open_x;
                 g_field_y = g_open_y;
                 g_field_z = g_open_z;
-                g_field_yaw = g_open_yaw;
-                SendMove(g_open_x, g_open_y, g_open_z, g_open_yaw);
+                g_field_rotX = g_open_rotX;
+                g_field_rotY = g_open_rotY;
+                g_field_rotZ = g_open_rotZ;
+                SendMove(g_open_x, g_open_y, g_open_z, g_open_rotX, g_open_rotY, g_open_rotZ);
             }
             if (ImGui::IsItemHovered())
             {
@@ -189,7 +225,7 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(60.0f, 0.0f)))
             {
-                SendMove(g_open_x, g_open_y, g_open_z, g_open_yaw);
+                SendMove(g_open_x, g_open_y, g_open_z, g_open_rotX, g_open_rotY, g_open_rotZ);
                 queueAction("COORDS_CLOSE");
                 g_open = false;
             }
@@ -200,7 +236,7 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
             ImGui::SameLine();
             if (ImGui::Button("Preview", ImVec2(60.0f, 0.0f)))
             {
-                SendMove(g_field_x, g_field_y, g_field_z, g_field_yaw);
+                SendMove(g_field_x, g_field_y, g_field_z, g_field_rotX, g_field_rotY, g_field_rotZ);
             }
             if (ImGui::IsItemHovered())
             {
@@ -209,7 +245,7 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
             ImGui::SameLine();
             if (ImGui::Button("Apply", ImVec2(60.0f, 0.0f)))
             {
-                SendMove(g_field_x, g_field_y, g_field_z, g_field_yaw);
+                SendMove(g_field_x, g_field_y, g_field_z, g_field_rotX, g_field_rotY, g_field_rotZ);
                 queueAction("COORDS_CLOSE");
                 g_open = false;
             }
@@ -226,7 +262,7 @@ namespace RC::LivingBaseSpawnMenu::CoordsMenu
         // double-processed here.
         if (!stayOpen && g_open)
         {
-            SendMove(g_open_x, g_open_y, g_open_z, g_open_yaw);
+            SendMove(g_open_x, g_open_y, g_open_z, g_open_rotX, g_open_rotY, g_open_rotZ);
             queueAction("COORDS_CLOSE");
             g_open = false;
         }

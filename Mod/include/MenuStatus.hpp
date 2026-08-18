@@ -34,6 +34,16 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetY() -> float;
     auto TargetZ() -> float;
     auto TargetYaw() -> float;
+    // Pitch/Roll (2026-08-18, full 3-axis rotation): Unreal's own FRotator components, same as
+    // TargetYaw() -- Pitch rotates around the Y axis, Roll around X, matching MoveMenu/CoordsMenu's
+    // own X=Roll/Y=Pitch/Z=Yaw row convention (see MoveMenu.cpp's own comment on that mapping).
+    auto TargetPitch() -> float;
+    auto TargetRoll() -> float;
+
+    // Which axis the in-game ','/'.' keys (and this window's own ','/'.' shortcut) currently
+    // rotate -- "X", "Y", or "Z" -- cycled by '/' in either place via the SAME Lua-side state
+    // (main.lua's rotateAxis), so keyboard and GUI can never disagree about which one is active.
+    auto RotateAxis() -> const std::string&;
 
     // Bumped by main.lua every time '-' is pressed (see Config.KEYS.toggleWindow's own comment) --
     // StandaloneWindow compares this against the last value it saw each frame and flips its own

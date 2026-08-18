@@ -6,9 +6,10 @@
 // down has no such drop rate). Also carries: a live "Selected Target" readout (reads
 // MenuStatus::TargetLabel(), truncated with a full-text hover tooltip), an In-Game Keys toggle
 // (reads MenuStatus::IsEnabled(), mirrors the in-game Insert key -- but only gates LivingBase's
-// OWN keyboard keys, not this panel's own buttons; see its own comment in MoveMenu.cpp), a 180 flip, the
-// precision slider, Despawn/Undo, and Delete All (behind its own confirmation popup). Sends named
-// ACTIONS (e.g. "UP", "ROT_L", "ACTION:TOGGLE_ENABLE") or a raw precision scale, never raw
+// OWN keyboard keys, not this panel's own buttons; see its own comment in MoveMenu.cpp), full
+// 3-axis rotation (X/Y/Z = Roll/Pitch/Yaw, one row each), the precision slider, Despawn/Undo, and
+// Delete All (behind its own confirmation popup). Sends named ACTIONS (e.g. "UP", "ROTZ_L",
+// "ACTION:TOGGLE_ENABLE") or a raw precision scale, never raw
 // distances/angles for the spatial ones -- main.lua's own Config.LIVE_EDIT_*_STEP values stay the
 // single source of truth for step sizes, same division of responsibility as SpawnMenu (this side
 // only ever signals intent, Lua still owns what it means). MenuStatus.hpp is the one place this

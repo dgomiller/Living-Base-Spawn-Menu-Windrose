@@ -24,8 +24,11 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         float g_target_y = 0.0f;
         float g_target_z = 0.0f;
         float g_target_yaw = 0.0f;
+        float g_target_pitch = 0.0f;
+        float g_target_roll = 0.0f;
         int g_window_toggle_seq = 0;
         int g_focus_steal_seq = 0;
+        std::string g_rotate_axis = "Z"; // matches main.lua's own default
 
         std::chrono::steady_clock::time_point g_last_poll{};
     } // namespace
@@ -92,6 +95,18 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 g_target_yaw = std::strtof(value.c_str(), nullptr);
             }
+            else if (key == "TARGET_PITCH")
+            {
+                g_target_pitch = std::strtof(value.c_str(), nullptr);
+            }
+            else if (key == "TARGET_ROLL")
+            {
+                g_target_roll = std::strtof(value.c_str(), nullptr);
+            }
+            else if (key == "ROTATE_AXIS")
+            {
+                g_rotate_axis = value;
+            }
             else if (key == "WINDOW_TOGGLE")
             {
                 g_window_toggle_seq = std::atoi(value.c_str());
@@ -111,6 +126,9 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetY() -> float { return g_target_y; }
     auto TargetZ() -> float { return g_target_z; }
     auto TargetYaw() -> float { return g_target_yaw; }
+    auto TargetPitch() -> float { return g_target_pitch; }
+    auto TargetRoll() -> float { return g_target_roll; }
+    auto RotateAxis() -> const std::string& { return g_rotate_axis; }
     auto WindowToggleSeq() -> int { return g_window_toggle_seq; }
     auto FocusStealSeq() -> int { return g_focus_steal_seq; }
 } // namespace RC::LivingBaseSpawnMenu::MenuStatus

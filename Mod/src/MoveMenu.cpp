@@ -6,6 +6,7 @@
 
 #include <fstream>
 #include <string>
+#include <utility>
 
 #include <imgui.h>
 
@@ -93,6 +94,22 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             }
         }
 
+        // Rotation went from one axis (Z/yaw only) to three (X/Y/Z = Roll/Pitch/Yaw, 2026-08-18) --
+        // ',' '.' stay the only two rotate keys rather than growing to six, by rotating whichever
+        // axis is currently SELECTED. '/' (the plain key next to '.', not Num /, which stays bound
+        // to the in-game 45-degree-rotate key and is untouched by this) cycles the selection
+        // X -> Y -> Z -> X, same as the in-game '/' shortcut (Config.KEYS.toggleRotateAxis) --
+        // deliberately NOT a local toggle here: both '/' presses send the SAME "ACTION:
+        // ROTATE_AXIS_CYCLE" request, which main.lua's cycleRotateAxis() applies to ONE piece of
+        // shared Lua state (also toast-confirmed there), read back via MenuStatus::RotateAxis() --
+        // so the keyboard and this window can never disagree about which axis is active.
+        auto RotateAxisActions(const std::string& axis) -> std::pair<const char*, const char*>
+        {
+            if (axis == "X") { return {"ROTX_L", "ROTX_R"}; }
+            if (axis == "Y") { return {"ROTY_L", "ROTY_R"}; }
+            return {"ROTZ_L", "ROTZ_R"};
+        }
+
         auto pollKeyboard() -> void
         {
             repeatKey(ImGuiKey_UpArrow, "FWD");
@@ -101,8 +118,10 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             repeatKey(ImGuiKey_RightArrow, "RIGHT");
             repeatKey(ImGuiKey_PageUp, "UP");
             repeatKey(ImGuiKey_PageDown, "DOWN");
-            repeatKey(ImGuiKey_Comma, "ROT_L");
-            repeatKey(ImGuiKey_Period, "ROT_R");
+            pressKey(ImGuiKey_Slash, "ROTATE_AXIS_CYCLE"); // one-shot: holding shouldn't spin through axes
+            auto [rotL, rotR] = RotateAxisActions(MenuStatus::RotateAxis());
+            repeatKey(ImGuiKey_Comma, rotL);
+            repeatKey(ImGuiKey_Period, rotR);
             pressKey(ImGuiKey_KeypadAdd, "TARGET_LOCK");
         }
 
@@ -230,23 +249,53 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
 
         ImGui::Spacing();
 
-        // Height + rotate, grouped together: Up/Down on the left, Flip180 spanning the top-right
-        // two cells, RotL/RotR filling the bottom-right two.
+        // Height: Up/Down, on their own row now that Rotate (below) needs its own 3 rows.
         repeatButton("Up", "UP", cellW, cellH, "Raise (PageUp)");
         ImGui::SameLine();
-        ImGui::PushButtonRepeat(false); // one-shot: holding shouldn't spin the object continuously
-        if (ImGui::Button("Flip 180", ImVec2(wide2, cellH)))
-        {
-            queueMove("ROT_180");
-        }
-        ImGui::PopButtonRepeat();
-        HoverTooltip("Rotate 180 degrees in place (one press)");
-
         repeatButton("Down", "DOWN", cellW, cellH, "Lower (PageDown)");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // Rotate: full 3-axis control (2026-08-18, replacing the old single-axis Rot L/R + Flip
+        // 180 -- RedFalcon: "not useful as much" once every axis is directly reachable, and props
+        // that can rest at any angle -- a coin, an ingot, a dropped weapon -- need more than yaw,
+        // unlike a statue/NPC). One row per axis, "<-" / axis letter / "->", X/Y/Z = Roll/Pitch/Yaw
+        // (Unreal's own FRotator convention). Each button sends the exact same MOVE:ROTx_L/R
+        // request the keyboard's ','/'.' send once pointed at that axis (see pollKeyboard's own
+        // comment) -- clicking here and using the keyboard are just two paths to the same action.
+        ImGui::TextUnformatted("Rotate");
         ImGui::SameLine();
-        repeatButton("Rot L", "ROT_L", cellW, cellH, "Rotate left (,)");
-        ImGui::SameLine();
-        repeatButton("Rot R", "ROT_R", cellW, cellH, "Rotate right (.)");
+        ImGui::TextDisabled("(keyboard: , . rotates axis  |  / switches which)");
+        {
+            // Middle cell is a plain (non-interactive) label, not a real button -- BeginDisabled
+            // keeps it visibly inert (ImGui's own standard "not clickable" look, used elsewhere in
+            // this codebase for the same reason) while still letting a pushed background color
+            // show through dimmed, which is what actually communicates "active axis" here.
+            auto axisRow = [&](const char* label, const char* leftAction, const char* rightAction, const std::string& current)
+            {
+                const bool isKeyboardAxis = (MenuStatus::RotateAxis() == current);
+                repeatButton("<-", leftAction, cellW, cellH);
+                ImGui::SameLine();
+                if (isKeyboardAxis)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_CheckMark]);
+                }
+                ImGui::BeginDisabled();
+                ImGui::Button(label, ImVec2(cellW, cellH));
+                ImGui::EndDisabled();
+                if (isKeyboardAxis)
+                {
+                    ImGui::PopStyleColor();
+                }
+                HoverTooltip(isKeyboardAxis ? "This is the axis ','/'.' currently rotate -- press '/' to switch" : nullptr);
+                ImGui::SameLine();
+                repeatButton("->", rightAction, cellW, cellH);
+            };
+            axisRow("X", "ROTX_L", "ROTX_R", "X");
+            axisRow("Y", "ROTY_L", "ROTY_R", "Y");
+            axisRow("Z", "ROTZ_L", "ROTZ_R", "Z");
+        }
 
         ImGui::EndDisabled(); // !hasTarget
 
