@@ -61,9 +61,10 @@ for a combined 2.0.0+ release.
 
 ## License
 
-**No rights reserved.** Treat this as public domain — use it, modify it, redistribute it, fork it, bundle
-it into something else. No credit needed, no permission needed.
+Licensed under **[Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/)
+(CC BY-SA 4.0)** — see [`LICENSE`](LICENSE). Use, modify, and redistribute freely, including commercially,
+as long as you (1) credit the original author(s), and (2) release your own version under this same license.
 
-This waiver covers this mod's own code only. **Windrose** and its game assets, class names, and
-intellectual property belong to Kraken Express — this is an unofficial, unaffiliated mod. UE4SS/RE-UE4SS
-(the `RE-UE4SS` submodule) is a separate open-source project with its own license.
+This covers this mod's own code only. **Windrose** and its game assets, class names, and intellectual
+property belong to Kraken Express — this is an unofficial, unaffiliated mod. UE4SS/RE-UE4SS (the
+`RE-UE4SS` submodule) is a separate open-source project with its own license.
