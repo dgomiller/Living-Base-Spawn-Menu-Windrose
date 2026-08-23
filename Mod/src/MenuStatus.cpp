@@ -12,6 +12,8 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         // -- see that file's own comment for why a bare relative path is wrong here.
         constexpr const char* STATUS_PATH = "ue4ss/Mods/LivingBase/spawn_menu_status.txt";
         constexpr auto POLL_INTERVAL = std::chrono::milliseconds(300);
+        // C++ -> Lua leg (2026-08-20) -- see PublishWindowVisible's own comment in the header.
+        constexpr const char* WINDOW_STATE_PATH = "ue4ss/Mods/LivingBase/spawn_menu_window_state.txt";
 
         // Defaults assume "everything's fine" (enabled, not restoring) rather than "everything's
         // locked" -- until the first successful read, there's no reason to grey out the whole
@@ -131,4 +133,26 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto RotateAxis() -> const std::string& { return g_rotate_axis; }
     auto WindowToggleSeq() -> int { return g_window_toggle_seq; }
     auto FocusStealSeq() -> int { return g_focus_steal_seq; }
+
+    auto PublishWindowVisible(bool visible) -> void
+    {
+        // Same defaults-assume-first-call-is-real reasoning as g_enabled's own comment above --
+        // NOT gated behind "only if different from g_last_published_visible AND g_has_published",
+        // just the change check; the very first call after launch always writes once so a freshly
+        // started Lua side never reads a stale/missing file and assumes the wrong state.
+        static bool has_published = false;
+        static bool last_published = false;
+        if (has_published && visible == last_published)
+        {
+            return;
+        }
+        has_published = true;
+        last_published = visible;
+        std::ofstream f(WINDOW_STATE_PATH, std::ios::trunc);
+        if (!f)
+        {
+            return;
+        }
+        f << (visible ? "1" : "0");
+    }
 } // namespace RC::LivingBaseSpawnMenu::MenuStatus

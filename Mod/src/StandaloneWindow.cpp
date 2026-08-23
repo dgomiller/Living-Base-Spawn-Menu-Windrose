@@ -257,6 +257,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // frame regardless.
                 MenuStatus::Poll();
 
+                // Publish real visibility back to Lua (2026-08-20) -- self-throttled internally
+                // (only writes on an actual change), so cheap to call every frame regardless, same
+                // as Poll() above. Deliberately OUTSIDE the toggle_seq-changed block below: that
+                // block only runs when '-' was pressed, but this needs to reflect the CURRENT state
+                // at all times (e.g. the window's own [X] close button, unrelated to that key,
+                // still needs to reach Lua).
+                MenuStatus::PublishWindowVisible(IsWindowVisible(hwnd) != FALSE);
+
                 // '-' toggles this window open/closed WHILE PLAYING (see MenuStatus::WindowToggleSeq()'s
                 // own comment) -- a changed sequence number means flip visibility, regardless of what
                 // it changed TO, since C++ owns the actual open/closed state and Lua has no way to

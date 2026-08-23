@@ -4,10 +4,14 @@
 
 // MenuStatus: reads spawn_menu_status.txt, which LivingBase's main.lua overwrites whenever
 // keys-enabled, the world-load restore lock, or the target-lock label actually changes (see that
-// file's own "SPAWN MENU STATUS" comment). This is the one Lua -> C++ direction in the whole
-// bridge -- every other file here (SpawnMenu.cpp, MoveMenu.cpp) only ever writes REQUESTS for Lua
-// to act on. Shared by both SpawnMenu and MoveMenu (and StandaloneWindow, which gates the whole
-// window on IsRestoring()) so the file is only ever parsed in one place.
+// file's own "SPAWN MENU STATUS" comment). This used to be the ONLY Lua <-> C++ direction in the
+// whole bridge (every other file here -- SpawnMenu.cpp, MoveMenu.cpp -- only ever writes REQUESTS
+// for Lua to act on) until PublishWindowVisible below (2026-08-20) added the first C++ -> Lua leg,
+// for the hover-highlight feature: Lua needs to know whether this window is actually open so it
+// only runs its own raycast while it matters (see that function's own comment for why C++, not
+// Lua, has to be the one to answer this). Shared by both SpawnMenu and MoveMenu (and
+// StandaloneWindow, which gates the whole window on IsRestoring()) so the file is only ever parsed
+// in one place.
 
 namespace RC::LivingBaseSpawnMenu::MenuStatus
 {
@@ -58,4 +62,14 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // visible. Same monotonic-counter shape as WindowToggleSeq() and for the same reason: C++
     // doesn't need to know anything except "this happened."
     auto FocusStealSeq() -> int;
+
+    // The FIRST C++ -> Lua leg of this bridge (2026-08-20). Writes the window's real
+    // IsWindowVisible(hwnd) state to spawn_menu_window_state.txt so Lua's hover-highlight loop can
+    // gate its own raycast on "is this window actually open" instead of the unrelated In-Game-Keys
+    // toggle -- RedFalcon's own point: only spend that raycast's cost when the window driving the
+    // feature is even up. Self-throttled to WRITE ONLY ON AN ACTUAL CHANGE (not every poll) --
+    // same "don't do needless file I/O every frame" discipline as everything else in this bridge.
+    // Call once per frame from StandaloneWindow's render loop, same as Poll() above; cheap no-op
+    // when nothing changed.
+    auto PublishWindowVisible(bool visible) -> void;
 } // namespace RC::LivingBaseSpawnMenu::MenuStatus

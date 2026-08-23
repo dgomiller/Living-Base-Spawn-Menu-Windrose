@@ -25,7 +25,7 @@ namespace RC::LivingBaseSpawnMenu
         ModName = STR("LivingBaseSpawnMenu");
         ModAuthors = STR("RedFalcon");
         ModDescription = STR("Category-based spawn/movement menu companion for LivingBase.");
-        ModVersion = STR("0.1.0");
+        ModVersion = STR("3.0.0");
 
         Output::send<LogLevel::Normal>(STR("[LivingBaseSpawnMenu] constructed\n"));
     }
