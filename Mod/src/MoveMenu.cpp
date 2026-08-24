@@ -275,7 +275,15 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             auto axisRow = [&](const char* label, const char* leftAction, const char* rightAction, const std::string& current)
             {
                 const bool isKeyboardAxis = (MenuStatus::RotateAxis() == current);
-                repeatButton("<-", leftAction, cellW, cellH);
+                // "##" + leftAction/rightAction (2026-08-24, RedFalcon's bug report: ImGui's own
+                // "3 visible items with conflicting ID" popup on hover) -- repeatButton's ID comes
+                // straight from its label (plain ImGui::Button(label, ...)), and all three axis
+                // rows called this with the literal same "<-"/"->" strings, so X/Y/Z's left buttons
+                // all collided on one ID (and same for the right buttons). leftAction/rightAction
+                // are already unique per axis ("ROTX_L"/"ROTY_L"/"ROTZ_L" etc.), so reusing them as
+                // the `##`-suffix disambiguates the ID without changing what's actually displayed
+                // (text after `##` is ID-only, never shown).
+                repeatButton(("<-##" + std::string(leftAction)).c_str(), leftAction, cellW, cellH);
                 ImGui::SameLine();
                 if (isKeyboardAxis)
                 {
@@ -290,7 +298,7 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
                 }
                 HoverTooltip(isKeyboardAxis ? "This is the axis ','/'.' currently rotate -- press '/' to switch" : nullptr);
                 ImGui::SameLine();
-                repeatButton("->", rightAction, cellW, cellH);
+                repeatButton(("->##" + std::string(rightAction)).c_str(), rightAction, cellW, cellH);
             };
             axisRow("X", "ROTX_L", "ROTX_R", "X");
             axisRow("Y", "ROTY_L", "ROTY_R", "Y");
