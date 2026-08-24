@@ -21,4 +21,8 @@ namespace RC::LivingBaseSpawnMenu::InGamePanel
     // visible/hidden. Bound to a toggle key by SpawnMenuMod (register_keydown_event lives on the
     // CppUserModBase instance, not here).
     auto Toggle() -> void;
+
+    // Call once per frame from SpawnMenuMod::on_update() (Phase 2, 2026-08-23) -- polls the Lua
+    // status bridge and refreshes Spawn/Replace's enabled state while the panel is visible.
+    auto Tick() -> void;
 } // namespace RC::LivingBaseSpawnMenu::InGamePanel

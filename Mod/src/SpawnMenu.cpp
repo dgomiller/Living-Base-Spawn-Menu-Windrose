@@ -13,17 +13,24 @@
 
 namespace RC::LivingBaseSpawnMenu::SpawnMenu
 {
+    // Real definition of the MenuNode the header only forward-declares -- must live directly in
+    // this namespace (not the anonymous one below) so it's the SAME type external callers'
+    // `const MenuNode&` refers to, via the accessors at the bottom of this file.
+    struct MenuNode
+    {
+        std::string label;
+        std::vector<std::unique_ptr<MenuNode>> children;
+        bool is_leaf{};
+        std::string roster;
+        int index{};
+        // UMG-only (InGamePanel Phase 2): persists expand/collapse across tree rebuilds, since
+        // there's no ImGui-style implicit ID-stack state to lean on. `mutable` so IsExpanded()/
+        // ToggleExpanded() can take `const MenuNode&` like every other accessor here.
+        mutable bool expanded{};
+    };
+
     namespace
     {
-        struct MenuNode
-        {
-            std::string label;
-            std::vector<std::unique_ptr<MenuNode>> children;
-            bool is_leaf{};
-            std::string roster;
-            int index{};
-        };
-
         MenuNode g_root;
 
         // Currently SELECTED leaf (2026-08-16 rework -- clicking used to spawn immediately; now it
@@ -161,6 +168,16 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             f << verb << ":" << roster << ":" << index << "\n";
         }
 
+        // Shared by ImGui's draw_node below and the public SelectLeaf() InGamePanel calls -- one
+        // selection state, so selecting from either front-end behaves identically to the other.
+        auto select_leaf_internal(const MenuNode& node, const std::string& full_path) -> void
+        {
+            g_selected_roster = node.roster;
+            g_selected_index = node.index;
+            g_selected_path = full_path;
+            g_has_selection = true;
+        }
+
         // draw_node now only SELECTS a leaf (highlights it, records roster/index/full-path) rather
         // than spawning immediately -- the Spawn/Replace buttons in Draw() act on the selection.
         // `path_prefix`: the breadcrumb accumulated so far, purely for the "Selected: ..." readout.
@@ -173,10 +190,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 bool is_selected = g_has_selection && g_selected_roster == node.roster && g_selected_index == node.index;
                 if (ImGui::Selectable(node.label.c_str(), is_selected))
                 {
-                    g_selected_roster = node.roster;
-                    g_selected_index = node.index;
-                    g_selected_path = full_path;
-                    g_has_selection = true;
+                    select_leaf_internal(node, full_path);
                 }
                 return;
             }
@@ -267,5 +281,52 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             ImGui::EndDisabled();
         }
         ImGui::EndDisabled(); // MenuStatus::IsRestoring()
+    }
+
+    // --- InGamePanel Phase 2 accessors (2026-08-23) -- thin wrappers over the exact same state
+    // and write_request()/select_leaf_internal() Draw() itself uses above, so both front-ends stay
+    // in lockstep. ---
+
+    auto RootNode() -> const MenuNode& { return g_root; }
+    auto ChildCount(const MenuNode& node) -> int { return static_cast<int>(node.children.size()); }
+    auto ChildAt(const MenuNode& node, int index) -> const MenuNode& { return *node.children[static_cast<size_t>(index)]; }
+    auto Label(const MenuNode& node) -> const std::string& { return node.label; }
+    auto IsLeaf(const MenuNode& node) -> bool { return node.is_leaf && node.children.empty(); }
+
+    auto IsExpanded(const MenuNode& node) -> bool { return node.expanded; }
+    auto ToggleExpanded(const MenuNode& node) -> void { node.expanded = !node.expanded; }
+
+    auto HasSelection() -> bool { return g_has_selection; }
+    auto IsSelected(const MenuNode& node) -> bool
+    {
+        return g_has_selection && g_selected_roster == node.roster && g_selected_index == node.index;
+    }
+    auto SelectedPath() -> const std::string& { return g_selected_path; }
+    auto SelectLeaf(const MenuNode& node, const std::string& full_path) -> void
+    {
+        if (!IsLeaf(node))
+        {
+            return;
+        }
+        select_leaf_internal(node, full_path);
+    }
+
+    auto CanSpawn() -> bool { return g_has_selection; }
+    auto CanReplace() -> bool { return g_has_selection && !MenuStatus::TargetLabel().empty(); }
+    auto SpawnSelected() -> void
+    {
+        if (!CanSpawn())
+        {
+            return;
+        }
+        write_request("SPAWN", g_selected_roster, g_selected_index);
+    }
+    auto ReplaceSelected() -> void
+    {
+        if (!CanReplace())
+        {
+            return;
+        }
+        write_request("REPLACE", g_selected_roster, g_selected_index);
     }
 } // namespace RC::LivingBaseSpawnMenu::SpawnMenu

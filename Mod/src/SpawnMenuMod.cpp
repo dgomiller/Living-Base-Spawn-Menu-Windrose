@@ -52,6 +52,12 @@ namespace RC::LivingBaseSpawnMenu
         // 4 folds real activation into the window-open/close flow the rest of this mod already
         // uses.
         register_keydown_event(Input::Key::P, [] { InGamePanel::Toggle(); });
+        // NOTE (2026-08-23): register_keydown_event(Input::Key::LEFT_MOUSE_BUTTON, ...) was tried
+        // here for the in-game panel's click detection and REMOVED -- confirmed live it never
+        // fires either, because UE4SS's own Win32AsyncInputSource polls GetAsyncKeyState(key) for
+        // EVERY subscribed key including mouse buttons (same underlying call a raw poll already
+        // proved this game doesn't expose mouse state through). See InGamePanel.cpp's file header
+        // for the click-detection mechanism actually in use now.
     }
 
     auto SpawnMenuMod::on_update() -> void
@@ -61,5 +67,6 @@ namespace RC::LivingBaseSpawnMenu
             m_logged_first_update = true;
             Output::send<LogLevel::Normal>(STR("[LivingBaseSpawnMenu] on_update firing\n"));
         }
+        InGamePanel::Tick();
     }
 } // namespace RC::LivingBaseSpawnMenu
