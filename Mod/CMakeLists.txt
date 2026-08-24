@@ -12,7 +12,6 @@ FetchContent_GetProperties(ImGui SOURCE_DIR ImGui_SOURCE_DIR)
 add_library(${TARGET} SHARED
         src/dllmain.cpp
         src/SpawnMenuMod.cpp
-        src/InGamePanel.cpp
         src/GameOverlay.cpp
         src/StandaloneWindow.cpp
         src/SpawnMenu.cpp
