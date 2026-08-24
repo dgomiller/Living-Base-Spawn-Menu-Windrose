@@ -2,6 +2,7 @@
 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <MenuStatus.hpp>
+#include <StandaloneWindow.hpp>
 
 #include <fstream>
 #include <memory>
@@ -240,6 +241,10 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             if (ImGui::Button("Spawn", ImVec2(100.0f, 0.0f)))
             {
                 write_request("SPAWN", g_selected_roster, g_selected_index);
+                // Hand focus back to the game (2026-08-23, RedFalcon's request) -- placing an item
+                // shouldn't leave the player stuck alt-tabbed into this window. See
+                // StandaloneWindow::ReturnFocusToGame()'s own comment.
+                StandaloneWindow::ReturnFocusToGame();
             }
             if (ImGui::IsItemHovered())
             {
@@ -256,6 +261,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             if (ImGui::Button("Replace", ImVec2(100.0f, 0.0f)))
             {
                 write_request("REPLACE", g_selected_roster, g_selected_index);
+                StandaloneWindow::ReturnFocusToGame();
             }
             if (ImGui::IsItemHovered())
             {

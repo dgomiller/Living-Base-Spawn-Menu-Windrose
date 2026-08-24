@@ -13,4 +13,12 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 {
     auto Start() -> void;
     auto Stop() -> void;
+
+    // Hands OS input focus back to whatever window had it immediately before this window last
+    // stole focus (open via '-', or an explicit '=' steal) -- in practice, the game itself, since
+    // stealing focus is the only way this window's ImGui content can be clicked at all. Called by
+    // SpawnMenu after a Spawn/Replace request is sent, so placing an item doesn't leave the player
+    // stuck alt-tabbed into this window. A no-op if nothing was ever stolen from, or if that window
+    // is no longer valid.
+    auto ReturnFocusToGame() -> void;
 } // namespace RC::LivingBaseSpawnMenu::StandaloneWindow

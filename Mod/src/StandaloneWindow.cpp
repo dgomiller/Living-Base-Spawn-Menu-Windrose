@@ -28,6 +28,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
         std::thread g_thread;
         std::atomic_bool g_stop_requested{};
 
+        // Whatever window had OS focus immediately before we last stole it (see the two
+        // SetForegroundWindow(hwnd) call sites below) -- in practice, the game itself, since
+        // stealing focus is the only way this window's content can be clicked. Read/written only
+        // from this window's own thread (both the capture points and ReturnFocusToGame() itself,
+        // the latter called synchronously from SpawnMenu::Draw() while it's running on this same
+        // thread) -- no cross-thread synchronization needed.
+        HWND g_previous_foreground_window{};
+
         ComPtr<ID3D11Device> g_device;
         ComPtr<ID3D11DeviceContext> g_device_context;
         ComPtr<IDXGISwapChain> g_swap_chain;
@@ -289,6 +297,9 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         else
                         {
                             ShowWindow(hwnd, SW_SHOW);
+                            // Remember who had focus before we take it -- see ReturnFocusToGame()'s
+                            // own comment (2026-08-23).
+                            g_previous_foreground_window = GetForegroundWindow();
                             SetForegroundWindow(hwnd);
                         }
                     }
@@ -306,6 +317,8 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         last_seen_focus_steal_seq = focus_steal_seq;
                         if (IsWindowVisible(hwnd))
                         {
+                            // Same capture as the '-' open branch above (2026-08-23).
+                            g_previous_foreground_window = GetForegroundWindow();
                             SetForegroundWindow(hwnd);
                         }
                     }
@@ -459,6 +472,17 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
         if (g_thread.joinable())
         {
             g_thread.join();
+        }
+    }
+
+    // See this function's own declaration comment in the header, and g_previous_foreground_window's
+    // comment above for why the capture/restore split works. CONFIRMED WORKING LIVE (2026-08-24):
+    // Spawn/Replace correctly hand focus back to the game.
+    auto ReturnFocusToGame() -> void
+    {
+        if (g_previous_foreground_window && IsWindow(g_previous_foreground_window))
+        {
+            SetForegroundWindow(g_previous_foreground_window);
         }
     }
 } // namespace RC::LivingBaseSpawnMenu::StandaloneWindow
