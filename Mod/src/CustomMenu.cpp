@@ -187,8 +187,10 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             }
             constexpr float kPickW = 96.0f;
             constexpr float kPickH = 26.0f;
-            const float pickAvail = ImGui::GetContentRegionAvail().x;
-            const int perRow = std::max(1, static_cast<int>(pickAvail / (kPickW + ImGui::GetStyle().ItemSpacing.x)));
+            // Fixed at 3 columns (8 rows for the 24 colors) rather than auto-fit-to-width
+            // (2026-09-08, RedFalcon's request) -- was `pickAvail / (kPickW + spacing)`, which
+            // varied with the window's own current size.
+            constexpr int perRow = 3;
             for (int p = 0; p < kClothColorCount; ++p)
             {
                 if (p % perRow != 0)
