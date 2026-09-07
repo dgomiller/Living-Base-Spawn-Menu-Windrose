@@ -237,37 +237,81 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             ImGui::EndChild();
 
             ImGui::Separator();
-            ImGui::BeginDisabled(!g_has_selection);
-            if (ImGui::Button("Spawn", ImVec2(100.0f, 0.0f)))
+
+            // Factored out (2026-08-24, numpad-only keybind rebuild) so the F2/F3 shortcuts below
+            // and the buttons themselves share one body -- keyboard and mouse can never disagree
+            // about what "Spawn"/"Replace" actually does.
+            // Selections under the "Custom" top-level branch (Poses/Skin Tones/Hair, and whatever
+            // else lands there later) apply to a target that's ALREADY on screen rather than
+            // placing something new to go look at -- RedFalcon's request (2026-08-28): stay in
+            // this window after one of those so several can be tried in a row without the focus
+            // hop each time. Checked against the SAME breadcrumb the "Selected: ..." tooltip
+            // already uses (g_selected_path's first segment), not the roster name -- this way any
+            // future roster added under Custom picks up the same behavior automatically, with
+            // nothing to keep in sync on the Lua side.
+            auto isCustomSelection = [&]() -> bool
+            {
+                return g_selected_path.rfind("Custom / ", 0) == 0 || g_selected_path == "Custom";
+            };
+            auto doSpawn = [&]()
             {
                 write_request("SPAWN", g_selected_roster, g_selected_index);
                 // Hand focus back to the game (2026-08-23, RedFalcon's request) -- placing an item
                 // shouldn't leave the player stuck alt-tabbed into this window. See
-                // StandaloneWindow::ReturnFocusToGame()'s own comment.
-                StandaloneWindow::ReturnFocusToGame();
-            }
-            if (ImGui::IsItemHovered())
+                // StandaloneWindow::ReturnFocusToGame()'s own comment. Skipped for Custom selections,
+                // see the comment above.
+                if (!isCustomSelection())
+                {
+                    StandaloneWindow::ReturnFocusToGame();
+                }
+            };
+            auto doReplace = [&]()
             {
-                ImGui::SetTooltip(g_has_selection ? "Place a new copy of: %s" : "Select an entry in the tree first.", g_selected_path.c_str());
-            }
-            ImGui::EndDisabled();
+                write_request("REPLACE", g_selected_roster, g_selected_index);
+                if (!isCustomSelection())
+                {
+                    StandaloneWindow::ReturnFocusToGame();
+                }
+            };
 
             // Replace additionally requires a locked target -- RedFalcon's request (2026-08-16):
             // unlike Spawn (places a brand new object regardless of any target), Replace swaps
             // whatever's currently target-locked, which is meaningless with nothing locked.
-            ImGui::SameLine();
             const bool hasTarget = !MenuStatus::TargetLabel().empty();
+
+            // F2/F3 shortcuts (2026-08-24, numpad-only keybind rebuild) -- same guard conditions as
+            // the buttons below, so a stray press can't spawn/replace with nothing selected.
+            if (g_has_selection && ImGui::IsKeyPressed(ImGuiKey_F2, false))
+            {
+                doSpawn();
+            }
+            if (g_has_selection && hasTarget && ImGui::IsKeyPressed(ImGuiKey_F3, false))
+            {
+                doReplace();
+            }
+
+            ImGui::BeginDisabled(!g_has_selection);
+            if (ImGui::Button("Spawn", ImVec2(100.0f, 0.0f)))
+            {
+                doSpawn();
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(g_has_selection ? "Place a new copy of: %s (F2)" : "Select an entry in the tree first.", g_selected_path.c_str());
+            }
+            ImGui::EndDisabled();
+
+            ImGui::SameLine();
             ImGui::BeginDisabled(!g_has_selection || !hasTarget);
             if (ImGui::Button("Replace", ImVec2(100.0f, 0.0f)))
             {
-                write_request("REPLACE", g_selected_roster, g_selected_index);
-                StandaloneWindow::ReturnFocusToGame();
+                doReplace();
             }
             if (ImGui::IsItemHovered())
             {
                 const char* msg = !g_has_selection ? "Select an entry in the tree first."
                         : !hasTarget              ? "Target-lock something first (Num +)."
-                                                   : "Swap the targeted/locked object for: %s";
+                                                   : "Swap the targeted/locked object for: %s (F3)";
                 ImGui::SetTooltip(msg, g_selected_path.c_str());
             }
             ImGui::EndDisabled();

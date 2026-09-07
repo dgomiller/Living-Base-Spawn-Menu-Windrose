@@ -2,20 +2,22 @@
 
 A base-building and population toolkit for your base -- hand-place ambient NPCs, animals, posed
 statues, and decorations anywhere, fine-tune each piece in place (full X/Y/Z position and
-rotation), and have it all persist across reloads. This window is the primary way to use it;
-everything here also has a keyboard equivalent, listed further down, which still works exactly the
-same whether or not you ever open this window.
+rotation), and have it all persist across reloads. This window is the ONLY way to spawn/replace
+something (2026-08-24 numpad-only rebuild -- there is no keybound spawning anymore); the numpad
+below then works identically whether you're in-game or focused on this window, for everything
+after that -- moving, rotating, confirming, despawning, and undoing.
 
 # Spawn Tree (left side)
 
 Click any entry in the tree to SELECT it -- the tree highlights your selection, and the
 Spawn/Replace buttons below it become active.
 
-- Spawn: places a new copy of the selected entry in front of you, same as pressing that roster's
-  numpad key enough times to cycle to it.
-- Replace: swaps whatever object is currently targeted or target-locked for the selected entry,
-  in the exact same spot. More precise than the old ]/[ cycle keys -- you can jump directly to
-  any specific look instead of stepping through the roster one at a time.
+- Spawn (F2): places a new copy of the selected entry, following your camera aim until you
+  confirm it (Numpad 0) or cancel it (Numpad /). Entering that placement session auto-switches
+  the numpad to Rotate mode, so 7/8/9/4/6/5 adjust its facing while it follows you; confirming
+  or cancelling switches back to Move mode.
+- Replace (F3): swaps whatever object is currently targeted or target-locked for the selected
+  entry, in the exact same spot.
 - Refresh: re-reads spawn_menu.ini from disk, in case it changed (new config.lua entries, or a
   hand-edit to the file itself). Reorganize/rename the tree freely by hand-editing spawn_menu.ini
   -- re-running the generator only ADDS anything new, it never touches or removes your edits.
@@ -24,22 +26,27 @@ Spawn/Replace buttons below it become active.
 
 - Selected Target: shows whatever is currently target-locked (Num +). Hover it if the name is
   truncated to see the full name.
-- In-Game Keys: mirrors the in-game Insert key -- turns LivingBase's OWN keyboard keys
-  (placement/live-edit/cycle/clear) on/off. Off by default each session. Does NOT affect this
-  panel's own buttons below, which work regardless -- the GUI is independent of this toggle by
-  design. Stays clickable even when off, or there'd be no way to turn keys back on.
-- Forward / Left / Right / Backward: slide the targeted object, same as the arrow keys. Hold to
-  keep moving -- these are real held-repeat buttons, unlike the same keys used in-game.
-- Up / Down: raise/lower, same as PageUp/PageDown.
+- Floor Clipping: toggles floor-lock off/on globally for placement -- lets an object clip through
+  the floor instead of resting on it. Mirrors the in-game Numpad '.' key. Was called "In-Game
+  Keys" before the 2026-08-24 numpad rebuild retired that concept -- every numpad key now works
+  whenever this window is open, with nothing separate left to enable/disable.
+- Forward / Left / Right / Backward: slide the targeted object, same as Numpad 8/4/6/5 in Move
+  mode. Hold to keep moving -- these are real held-repeat buttons.
+- "Move" label (center of the D-pad): lit up bright when Move mode is active, dark in Rotate
+  mode -- the opposite of the X/Y/Z labels below, so exactly one side is ever lit. Numpad 2 (or
+  this window's own copy of it) toggles between the two.
+- Up / Down / Coords: raise/lower (same as Numpad 7/9 in Move mode); Coords opens a precise
+  coordinate editor for the current target (see below), enabled only while something is
+  target-locked.
 - Rotate X / Y / Z (Roll / Pitch / Yaw): three full rows, each with its own Left/Right button, so
-  a placed prop can rest at any angle, not just spin around its vertical axis. Same rotation the
-  in-game ,/. keys drive -- whichever row is highlighted here is the axis they currently act on.
-- Coords: opens a precise coordinate editor for the current target (see below). Only enabled
-  while something is target-locked.
+  a placed prop can rest at any angle. All three light up TOGETHER in Rotate mode (Numpad 2) --
+  the six direction keys drive all three axes at once, no per-axis cycling anymore. The buttons
+  themselves are always clickable regardless of mode.
 - Precision: scales how far Up/Down/slide move per press (rotation is unaffected). 1x is the
-  everyday default; 1/8 through 1/2 are finer, 2x/4x are coarser.
-- Despawn: removes the targeted object, same as Num9.
-- Undo: restores the last despawn, same as Num0.
+  everyday default; 1/8 through 1/2 are finer, 2x/4x are coarser. GUI-only -- there's no longer
+  an in-game key for this.
+- Despawn (F4, same as Numpad 3): removes the targeted object.
+- Undo (Ctrl+Z): restores the last despawn. GUI-only -- there's no in-game key for it anymore.
 - Delete All: despawns EVERYTHING LivingBase has placed. Asks for confirmation first -- this
   cannot be undone.
 
@@ -50,7 +57,7 @@ every button above then acts on that object specifically, even after you walk aw
 elsewhere. Press Num + again while looking at something DIFFERENT to move the lock straight to
 it, no need to unlock first. Press Num + while still looking at the same object (or nothing new)
 to release the lock. Auto-releases (with a toast) if the locked object gets despawned, or if you
-walk more than ~15m away from it.
+walk more than ~19m away from it.
 
 # Coords Window
 
@@ -76,92 +83,75 @@ flew off into the distance. It resumes the instant the window closes, however it
 
 # Opening/Focusing This Window (in-game)
 
-- '-': opens/closes this window. Starts closed each session. Works from anywhere while playing,
-  regardless of the In-Game Keys toggle.
-- '=': steals OS focus for this window (only if it's already open) -- handy after '-' opens it, so
-  your next click lands here instead of needing an extra click first.
+- Numpad '-': opens/closes this window. Starts closed each session. Works from anywhere while
+  playing -- the one numpad key that's reachable even while the window is closed.
+- Numpad '1': steals OS focus for this window (only if it's already open) -- handy after Numpad
+  '-' opens it, so your next click lands here instead of needing an extra click first. Press it
+  again WITH this window already focused and it does the reverse -- hands focus back to the game.
 
 # Keyboard Shortcuts (while this window has focus)
 
-Arrows = slide, PageUp/PageDown = height, , and . = rotate the currently-selected axis, / = cycle
-which axis ,/. act on (X -> Y -> Z -> X), Num + = target lock. These go through Windows' own
-key-repeat, so holding one works exactly like a held button -- unlike the same keys used in-game,
-where this UE4SS build silently drops most held-key repeats.
+Everything on the numpad below works identically whether the game or this window has focus (see
+Full Numpad Controls). On top of that, this window ALSO responds to:
 
-# Full Keyboard Controls (in-game, no window needed)
+- Arrows = slide, PageUp/PageDown = height -- GUI-only, no in-game equivalent.
+- F1 = Instructions tab, F5 = Tools tab, F10 = History tab.
+- F2 = Spawn, F3 = Replace, F4 = Despawn (same as Numpad 3).
+- Ctrl+Z = Undo (restore the last despawn).
 
-Everything in this window also works from the keyboard directly, exactly as it always has -- the
-GUI is an additional way to reach it, not a replacement. NumLock must be ON for the numpad keys to
-register.
+These all go through Windows' own key-repeat, so holding one works exactly like a held button --
+unlike the same keys used in-game, where this UE4SS build silently drops most held-key repeats.
 
-## Numpad -- place NPCs, statues & animals
+# Full Numpad Controls (in-game AND in this window)
 
-One per press, ~3m ahead in your camera direction; statues face you.
+The ONLY in-game keys LivingBase uses (2026-08-24 numpad-only rebuild). NumLock must be ON for
+the numpad keys to register -- with it OFF, Windows remaps the numpad to navigation keys before
+UE4SS ever sees them. Every key below requires this window to be OPEN except Numpad '-' itself
+(which is what opens it).
 
-- Num 1: Crew pawn (wanders, fights hostiles as a combat ally; cycles 14 looks -- default crew
-  plus 12 walking faction-visitor re-skins across all four factions, plus a Brethren of the Coast
-  woman)
-- Num 2: Townsman (wanders, sits on chairs/benches/beds)
-- Num 3: Standing statue (merchants, chatting, cross-arms, women, quest folk, named faction
-  leaders -- cycles)
-- Num 4: Floor sitter (cycles)
-- Num 5: Chair/stool sitter -- place your own stool (cycles)
-- Num 6: Interactive statue -- rummaging a chest/table, warming by a fire (cycles)
-- Num 7: Friendly Senkamati tribal human -- Warrior, Hunter, and female Caster, 30+ looks total
-  (with/without helmet, mob body vs. re-skinned where applicable, plus each one's original
-  corrupted look, and a frozen/idle counterpart for every look -- cycles)
-- Num 8: Friendly wildlife -- boar family, goats, dodos, wolves, crocodile (cycles)
-- Num 9: Despawn the object in front of you, on your floor
-- Num 0: Undo -- restore the last despawn (or a whole Delete wipe) at its exact spot, appearance
-  included; names what it restored
-- Num . (decimal): Walking female NPC -- cycles Woman With Hat, Woman With Hair, the Buccaneers
-  Merchant, Letty, and Marita, each in two base bodies, with a randomized skin tone (and, for the
-  two plain looks, hairstyle) on every placement
-- Backslash (\): Flip statue facing 180 degrees, for future spawns only
+## Move mode (default) / Rotate mode (after Numpad 2)
 
-## Cycle a placed statue/decoration (reticle-targeted, same as despawn)
+| Key | Move mode | Rotate mode |
+|-----|-----------|--------------|
+| 7 | Up | Rotate X- |
+| 8 | Forward | Rotate Y- |
+| 9 | Down | Rotate X+ |
+| 4 | Left | Rotate Z- |
+| 5 | Backward | Rotate Y+ |
+| 6 | Right | Rotate Z+ |
+| 2 | Change Mode (Move <-> Rotate) | |
 
-- ]: Cycle the targeted statue or decoration forward through its own roster, in place (undo-able)
-- [: Cycle it backward instead
+7/8/4/5/6 sit in the same plus-shape as W/A/S/D (5 directly below 8, same as S below W) -- Change
+Mode moved off the key in the middle of that cross onto the corner key below it, so it's no
+longer easy to mispress while moving.
 
-## Decorations
+Entering an active placement/grab session (a fresh Spawn, or Numpad *) auto-switches to Rotate
+mode -- movement doesn't apply to something that's already following your camera aim every tick.
+Confirming (Numpad 0) or cancelling (Numpad /) switches back to Move mode automatically.
 
-- ' (apostrophe): Change the active decoration category -- nature, boats, wrecks, tents, storage,
-  furniture, plus 18 themed Drops categories (Animal Parts, Artifacts, Clothes, Currency,
-  Ingredients, Keys, Meals, Mined, Misc, Potions/Bottles/Healing, Seeds, Tailoring, Tools,
-  Treasure, Trophies, Weapons, Wood, Writings). Announces which one on-screen; doesn't place
-  anything itself.
-- ; (semicolon): Place one decoration from the active category (cycles its own list, same as the
-  other placement keys)
+## Everything else
 
-## Live-edit -- tunes the nearest placed piece (or the target-locked one); persists
-
-- PageUp / PageDown: Raise / lower
-- Comma / Period: Rotate the currently-selected axis left / right (X/Y/Z = Roll/Pitch/Yaw; starts
-  on Z, so these behave exactly like a plain yaw rotate until / is pressed at least once)
-- / (plain, not Num /): Cycle which axis Comma/Period rotate (X -> Y -> Z -> X), toast-confirmed
-- Num /: Rotate a fixed 45 degrees (Yaw)
-- Num *: Rotate a fixed 180 degrees -- flip in place (Yaw)
-- Arrow keys: Slide forward / back / left / right
-- Num -: Cycle precision for the slide/height keys: full / 1/2 / 1/4 / 1/8 / 2x
-- Num +: Toggle target lock (see Target Lock above)
-
-## Housekeeping
-
-- Delete (x2): Clean house -- despawn everything (press twice within a few seconds to confirm)
-- Insert: Toggle LivingBase's own keyboard keys on/off (does not affect this window). Starting
-  state controlled by config.txt's KEYS_ENABLED_ONSTART, off by default.
+- Numpad 1: Release Cursor -- steals OS focus for this window.
+- Numpad 3: Despawn whatever's in front of you, on your floor.
+- Numpad +: Target Lock -- toggle locking onto whatever's in front of you (see Target Lock above).
+- Numpad /: Cancel the current placement -- destroys the previewed object, no trace.
+- Numpad *: Grab -- picks up whatever's currently target-locked and carries it like a fresh
+  placement.
+- Numpad -: Opens/closes this window. Works even while the window is closed.
+- Numpad 0: Confirm Placement -- locks the currently-previewed object in place. Nothing is
+  written to the persistent save until this fires.
+- Numpad . (decimal): Floor Clipping toggle (see the Live Edit Panel section above).
 
 Remap anything by editing Config.KEYS in Scripts\config.lua.
 
 # Console Commands
 
-Type these into UE4SS's console for spawning by name instead of cycling a numpad key. All three
+Type these into UE4SS's console for spawning by name instead of using the tree. All three
 print their response both on-screen and to ue4ss.log (look for [LivingBase] lines).
 
 - lblook <name>: Spawns one of LivingBase's own named looks -- a base class plus its full
-  reskin/de-corrupt/pacify recipe. This is what every numpad key (and this window's Spawn button)
-  uses internally, by name. lblook list [category] [all] lists what's available.
+  reskin/de-corrupt/pacify recipe. This is what this window's Spawn button uses internally, by
+  name. lblook list [category] [all] lists what's available.
 - lbspawn <ShortName|path>: Spawns a raw engine class, with none of this mod's recipe applied --
   just the game's own default look. lbspawn list [category] [all] lists what's available.
 - lbreload: Reloads LivingBase's Lua from disk without restarting the game or the world -- picks
@@ -172,30 +162,31 @@ print their response both on-screen and to ue4ss.log (look for [LivingBase] line
 
 - Persistence: everything you place is saved and restored on the next world load, separately per
   world if you play more than one, each with its own unique per-placement name and full
-  position/rotation. Delete (twice), or this window's Delete All, clears everything in the
-  current world.
+  position/rotation. This window's Delete All clears everything in the current world.
 - Whistle crew escort: use the boar whistle to summon a small crew squad that follows you and
   fights at your side, instead of a boar.
 - Invulnerable structures: your building blocks are made damage-proof so raiders can't wreck the
   base.
 - Unlock hidden build pieces: surfaces build-menu pieces hidden from standard play, while leaving
   recipe-locked progression intact.
-- On-screen toast feedback: despawn, undo, cycle, and spawn actions confirm on-screen, using the
-  game's own native notification widget. Every toast is also logged to this window's History tab.
+- On-screen toast feedback: spawn, despawn, undo, and placement confirm/cancel actions confirm
+  on-screen, using the game's own native notification widget. Every toast is also logged to this
+  window's History tab.
 
 Every feature above is individually toggleable in config.txt.
 
 # Known Limitations
 
-- This window's mouse cursor stays confined to the game window until one click inside it, after
-  =/- releases it. Click once in the game window, press = (or -) again if needed, then click once
-  more to fully return to normal camera control.
-- Arrows, PageUp/PageDown, and the numpad operator keys (/ * -) drop most rapid repeat presses
-  before UE4SS ever sees them -- an engine-level limitation, not a mod bug. This window's own
-  buttons don't have that problem.
-- The Brethren of the Coast "woman" crew re-skin (Num 1) currently has a male body under the
-  female clothing -- known, not yet fixed.
+- Occasional native crash during a long, active placement/relocate session (an object still
+  following your camera, especially with a lot of movement) -- an engine-level UE4SS fragility
+  (a stale UObject reference touched after the engine's own garbage collector tears it down),
+  not something Lua-side error handling can catch or a bug in LivingBase's own logic. Confirming
+  or cancelling a placement sooner rather than carrying an object around for a long stretch
+  lowers the odds of hitting it.
+- The numpad direction/operator keys drop most rapid repeat presses before UE4SS ever sees them
+  when used IN-GAME -- an engine-level limitation, not a mod bug. This window's own buttons and
+  its own numpad handling (via ImGui) don't have that problem.
+- Some crew re-skins available in the spawn tree currently have a male body under female
+  clothing -- known, not yet fixed.
 - Outfit and hair color can't be changed on any NPC placed by this mod, for any feature -- a hard
   engine limitation, not something not yet implemented. Skin tone and hairstyle both work fine.
-- ] and [ share a bind with the game's own "Change Target" combat key. Low-risk in practice, and
-  Insert disables every key this mod uses instantly if it's ever in the way.

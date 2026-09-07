@@ -15,10 +15,10 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         // C++ -> Lua leg (2026-08-20) -- see PublishWindowVisible's own comment in the header.
         constexpr const char* WINDOW_STATE_PATH = "ue4ss/Mods/LivingBase/spawn_menu_window_state.txt";
 
-        // Defaults assume "everything's fine" (enabled, not restoring) rather than "everything's
-        // locked" -- until the first successful read, there's no reason to grey out the whole
-        // window just because main.lua hasn't written its first status line yet.
-        bool g_enabled = true;
+        // Defaults assume "everything's fine" (free build off, not restoring) rather than
+        // "everything's locked" -- until the first successful read, there's no reason to grey out
+        // the whole window just because main.lua hasn't written its first status line yet.
+        bool g_freebuild = false;
         bool g_restoring = false;
         std::string g_target;
         std::string g_target_id;
@@ -30,7 +30,7 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         float g_target_roll = 0.0f;
         int g_window_toggle_seq = 0;
         int g_focus_steal_seq = 0;
-        std::string g_rotate_axis = "Z"; // matches main.lua's own default
+        std::string g_placement_mode = "MOVE"; // matches Spawner.placementMode's own default
 
         std::chrono::steady_clock::time_point g_last_poll{};
     } // namespace
@@ -65,9 +65,9 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 value.pop_back();
             }
-            if (key == "ENABLED")
+            if (key == "FREEBUILD")
             {
-                g_enabled = (value == "1");
+                g_freebuild = (value == "1");
             }
             else if (key == "RESTORING")
             {
@@ -105,9 +105,9 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 g_target_roll = std::strtof(value.c_str(), nullptr);
             }
-            else if (key == "ROTATE_AXIS")
+            else if (key == "PLACEMENT_MODE")
             {
-                g_rotate_axis = value;
+                g_placement_mode = value;
             }
             else if (key == "WINDOW_TOGGLE")
             {
@@ -120,7 +120,7 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         }
     }
 
-    auto IsEnabled() -> bool { return g_enabled; }
+    auto IsFreeBuild() -> bool { return g_freebuild; }
     auto IsRestoring() -> bool { return g_restoring; }
     auto TargetLabel() -> const std::string& { return g_target; }
     auto TargetId() -> const std::string& { return g_target_id; }
@@ -130,7 +130,7 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetYaw() -> float { return g_target_yaw; }
     auto TargetPitch() -> float { return g_target_pitch; }
     auto TargetRoll() -> float { return g_target_roll; }
-    auto RotateAxis() -> const std::string& { return g_rotate_axis; }
+    auto PlacementMode() -> const std::string& { return g_placement_mode; }
     auto WindowToggleSeq() -> int { return g_window_toggle_seq; }
     auto FocusStealSeq() -> int { return g_focus_steal_seq; }
 

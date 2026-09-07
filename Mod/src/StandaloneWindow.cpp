@@ -1,6 +1,7 @@
 #include <StandaloneWindow.hpp>
 
 #include <CoordsMenu.hpp>
+#include <CustomMenu.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <HelpMenu.hpp>
 #include <MenuStatus.hpp>
@@ -25,6 +26,13 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 {
     namespace
     {
+        // Shown in the native title bar (wide) and the ImGui root window's own title (narrow)
+        // below -- keep both in sync with each other AND with LivingBase/mod.txt's own version
+        // number (2026-08-24, RedFalcon's request) -- this companion mod doesn't track a separate
+        // version of its own, it ships alongside LivingBase.
+        constexpr const wchar_t* WINDOW_TITLE_W = L"Living Base Enhanced - v3.0.0";
+        constexpr const char* WINDOW_TITLE = "Living Base Enhanced - v3.0.0";
+
         std::thread g_thread;
         std::atomic_bool g_stop_requested{};
 
@@ -142,7 +150,7 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
             // works normally from here if this needs further tuning.
             HWND hwnd = CreateWindowExW(WS_EX_TOPMOST,
                                          wc.lpszClassName,
-                                         L"LivingBase Spawn Menu",
+                                         WINDOW_TITLE_W,
                                          WS_OVERLAPPEDWINDOW,
                                          100,
                                          100,
@@ -328,18 +336,41 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 ImGui_ImplWin32_NewFrame();
                 ImGui::NewFrame();
 
-                // '-' ALSO closes this window directly while IT (not the game) has OS focus -- the
+                // Numpad '-' (2026-08-24, numpad-only keybind rebuild -- was the plain '-'/Minus
+                // key) ALSO closes this window directly while IT (not the game) has OS focus -- the
                 // WINDOW_TOGGLE bridge above only ever fires from Lua's RegisterKeyBind, which is a
                 // GAME-input hook and never receives a keypress while a different top-level window
                 // (this one) has focus. Once SetForegroundWindow() above hands this window focus on
-                // open, the game stops seeing '-' entirely, so without this check '-' could only ever
-                // open, never close. Checked via ImGui's own key state instead, same pattern
-                // MoveMenu.cpp's pollKeyboard() already uses for its arrow-key shortcuts -- no round
-                // trip through Lua needed for this direction.
-                if (ImGui::IsKeyPressed(ImGuiKey_Minus, false))
+                // open, the game stops seeing Numpad '-' entirely, so without this check it could
+                // only ever open, never close. Checked via ImGui's own key state instead, same
+                // pattern MoveMenu.cpp's pollKeyboard() already uses for its arrow-key shortcuts --
+                // no round trip through Lua needed for this direction.
+                if (ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false))
                 {
                     ShowWindow(hwnd, SW_HIDE);
                 }
+
+                // F1/F5/F6/F10 tab shortcuts (2026-08-24, numpad-only keybind rebuild; F6 added
+                // 2026-09-08 for Custom) -- read once
+                // per frame, before the tab bar, and applied via ImGuiTabItemFlags_SetSelected on
+                // the matching BeginTabItem call below (ImGui's own documented way to force a tab
+                // active programmatically). F2/F3/F4 (Spawn/Replace/Despawn) live in SpawnMenu.cpp/
+                // MoveMenu.cpp instead -- they act on content INSIDE the Tools tab, not the tab bar
+                // itself, so they belong with the buttons they mirror, not here.
+                // Tools was F9 originally -- RedFalcon found that collides with another mod's own
+                // ModMenu window shortcut (it popped up INSIDE this window on F9), so moved to F5,
+                // which nothing else in this bridge uses.
+                const ImGuiTabItemFlags toolsTabFlags =
+                        ImGui::IsKeyPressed(ImGuiKey_F5, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                // F6 (2026-09-08, new "Custom" tab): next free function key after Spawn/Replace/
+                // Despawn (F2/F3/F4) and Tools (F5) -- F9 stays permanently avoided (see the Tools
+                // comment above for why).
+                const ImGuiTabItemFlags customTabFlags =
+                        ImGui::IsKeyPressed(ImGuiKey_F6, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                const ImGuiTabItemFlags instructionsTabFlags =
+                        ImGui::IsKeyPressed(ImGuiKey_F1, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                const ImGuiTabItemFlags historyTabFlags =
+                        ImGui::IsKeyPressed(ImGuiKey_F10, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
 
                 // Pin the ImGui content window to exactly fill the native OS window's client area,
                 // with none of ImGui's own title bar/resize border/drag handling -- the native
@@ -353,8 +384,9 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 constexpr ImGuiWindowFlags kRootWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
                         | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
                         | ImGuiWindowFlags_NoBringToFrontOnFocus;
-                ImGui::Begin("LivingBase Spawn Menu", nullptr, kRootWindowFlags);
-                // Three top-level tabs: Tools (the original spawn tree + move panel content),
+                ImGui::Begin(WINDOW_TITLE, nullptr, kRootWindowFlags);
+                // Four top-level tabs: Tools (the original spawn tree + move panel content), Custom
+                // (2026-09-08, RedFalcon's per-category cloth-color panel -- see CustomMenu.hpp),
                 // Instructions, and History. PIVOT (2026-08-16): Instructions/History used to live
                 // in a true separate OS window/thread/D3D11 device (HelpWindow.cpp, opened via a
                 // "Help" button) so they wouldn't feel crowded alongside Tools -- that second
@@ -365,7 +397,7 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // setup. See HelpMenu.hpp for the fuller history.
                 if (ImGui::BeginTabBar("##spawnmenu_tabs"))
                 {
-                    if (ImGui::BeginTabItem("Tools"))
+                    if (ImGui::BeginTabItem("Tools", nullptr, toolsTabFlags))
                     {
                         // Side-by-side layout: spawn tree on the left, held-repeat move buttons on
                         // the right -- two independent BeginChild panes, NOT ImGui's old Columns()
@@ -415,12 +447,17 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Instructions"))
+                    if (ImGui::BeginTabItem("Custom", nullptr, customTabFlags))
+                    {
+                        CustomMenu::Draw();
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Instructions", nullptr, instructionsTabFlags))
                     {
                         HelpMenu::DrawInstructionsTab();
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("History"))
+                    if (ImGui::BeginTabItem("History", nullptr, historyTabFlags))
                     {
                         HelpMenu::DrawHistoryTab();
                         ImGui::EndTabItem();

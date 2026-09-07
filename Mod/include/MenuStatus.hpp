@@ -20,7 +20,10 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // it themselves).
     auto Poll() -> void;
 
-    auto IsEnabled() -> bool;
+    // Spawner._placementFreeBuild (2026-08-24, numpad-only keybind rebuild -- replaces the old
+    // IsEnabled()/"In-Game Keys" concept, which no longer exists: key availability is purely "is
+    // this window open" now). Drives the Floor Clipping checkbox (was "In-Game Keys").
+    auto IsFreeBuild() -> bool;
     auto IsRestoring() -> bool;
     auto TargetLabel() -> const std::string&;
 
@@ -44,10 +47,15 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetPitch() -> float;
     auto TargetRoll() -> float;
 
-    // Which axis the in-game ','/'.' keys (and this window's own ','/'.' shortcut) currently
-    // rotate -- "X", "Y", or "Z" -- cycled by '/' in either place via the SAME Lua-side state
-    // (main.lua's rotateAxis), so keyboard and GUI can never disagree about which one is active.
-    auto RotateAxis() -> const std::string&;
+    // "MOVE" or "ROTATE" -- which meaning the six dual-purpose numpad direction keys (7/8/9/4/6/5,
+    // and this window's own mirror of them) currently have (2026-08-24, numpad-only keybind
+    // rebuild -- replaces the old single-axis RotateAxis()/','/'.'/'/ ' cycle concept, which no
+    // longer exists: Rotate mode now drives all three axes at once, nothing left to cycle between).
+    // Same Lua-side state (Spawner.placementMode) drives both the in-game keys and this window, so
+    // they can never disagree. Auto-forced to "ROTATE" while actively placing/relocating something
+    // (movement doesn't apply to an object the follow loop already owns position of), back to
+    // "MOVE" once that's confirmed/cancelled.
+    auto PlacementMode() -> const std::string&;
 
     // Bumped by main.lua every time '-' is pressed (see Config.KEYS.toggleWindow's own comment) --
     // StandaloneWindow compares this against the last value it saw each frame and flips its own
@@ -57,10 +65,11 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // "something changed," not "what the new state is."
     auto WindowToggleSeq() -> int;
 
-    // Bumped by main.lua every '=' press (see Config.KEYS.releaseMouse's own comment) --
-    // StandaloneWindow calls SetForegroundWindow() on itself when this changes, IF currently
-    // visible. Same monotonic-counter shape as WindowToggleSeq() and for the same reason: C++
-    // doesn't need to know anything except "this happened."
+    // Bumped by main.lua every Numpad-1 press (see Config.KEYS.releaseCursor's own comment, was
+    // OEM_EQUALS '=' before the numpad rebuild) -- StandaloneWindow calls SetForegroundWindow() on
+    // itself when this changes, IF currently visible. Same monotonic-counter shape as
+    // WindowToggleSeq() and for the same reason: C++ doesn't need to know anything except "this
+    // happened."
     auto FocusStealSeq() -> int;
 
     // The FIRST C++ -> Lua leg of this bridge (2026-08-20). Writes the window's real

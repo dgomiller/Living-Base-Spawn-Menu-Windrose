@@ -19,6 +19,7 @@ add_library(${TARGET} SHARED
         src/MenuStatus.cpp
         src/CoordsMenu.cpp
         src/HelpMenu.cpp
+        src/CustomMenu.cpp
         "${ImGui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp"
 )
 

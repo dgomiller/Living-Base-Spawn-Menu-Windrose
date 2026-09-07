@@ -3,6 +3,7 @@
 #include <CoordsMenu.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <MenuStatus.hpp>
+#include <StandaloneWindow.hpp>
 
 #include <fstream>
 #include <string>
@@ -94,22 +95,21 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             }
         }
 
-        // Rotation went from one axis (Z/yaw only) to three (X/Y/Z = Roll/Pitch/Yaw, 2026-08-18) --
-        // ',' '.' stay the only two rotate keys rather than growing to six, by rotating whichever
-        // axis is currently SELECTED. '/' (the plain key next to '.', not Num /, which stays bound
-        // to the in-game 45-degree-rotate key and is untouched by this) cycles the selection
-        // X -> Y -> Z -> X, same as the in-game '/' shortcut (Config.KEYS.toggleRotateAxis) --
-        // deliberately NOT a local toggle here: both '/' presses send the SAME "ACTION:
-        // ROTATE_AXIS_CYCLE" request, which main.lua's cycleRotateAxis() applies to ONE piece of
-        // shared Lua state (also toast-confirmed there), read back via MenuStatus::RotateAxis() --
-        // so the keyboard and this window can never disagree about which axis is active.
-        auto RotateAxisActions(const std::string& axis) -> std::pair<const char*, const char*>
-        {
-            if (axis == "X") { return {"ROTX_L", "ROTX_R"}; }
-            if (axis == "Y") { return {"ROTY_L", "ROTY_R"}; }
-            return {"ROTZ_L", "ROTZ_R"};
-        }
+        // RotateAxisActions REMOVED (2026-08-24, numpad-only keybind rebuild) -- the old single-
+        // axis-cycle concept it served (','/'.'/'/ ') no longer exists; Rotate mode now drives all
+        // three axes at once via the numpad's own direction keys (see pollKeyboard below), nothing
+        // left to cycle between.
 
+        // Numpad mirror (2026-08-24) -- same keys as LivingBase's own in-game numpad scheme (see
+        // config.lua's Config.KEYS header comment), so muscle memory carries over whether the game
+        // or this window has focus. The six dual-purpose direction keys move (translate) by
+        // default, or rotate per-axis once Numpad 2 toggles Spawner.placementMode to "ROTATE" (via
+        // ACTION:MODE_TOGGLE, same Lua-side state the in-game keys flip, so this window and the
+        // keyboard can never disagree -- see MenuStatus::PlacementMode()'s own comment). PageUp/
+        // PageDown/arrows stay exactly as before -- GUI-only, never added in-game.
+        // 5/2 SWAPPED (2026-08-24, RedFalcon's WASD-feel request -- see config.lua's own comment
+        // on Config.KEYS.changeMode) -- 8/4/5/6 now form the same plus-shape as W/A/S/D, and Mode
+        // Toggle sits on a corner key instead of the one in the middle of the movement cross.
         auto pollKeyboard() -> void
         {
             repeatKey(ImGuiKey_UpArrow, "FWD");
@@ -118,11 +118,37 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             repeatKey(ImGuiKey_RightArrow, "RIGHT");
             repeatKey(ImGuiKey_PageUp, "UP");
             repeatKey(ImGuiKey_PageDown, "DOWN");
-            pressKey(ImGuiKey_Slash, "ROTATE_AXIS_CYCLE"); // one-shot: holding shouldn't spin through axes
-            auto [rotL, rotR] = RotateAxisActions(MenuStatus::RotateAxis());
-            repeatKey(ImGuiKey_Comma, rotL);
-            repeatKey(ImGuiKey_Period, rotR);
-            pressKey(ImGuiKey_KeypadAdd, "TARGET_LOCK");
+
+            const bool rotateMode = (MenuStatus::PlacementMode() == "ROTATE");
+            repeatKey(ImGuiKey_Keypad7, rotateMode ? "ROTX_L" : "UP");
+            repeatKey(ImGuiKey_Keypad8, rotateMode ? "ROTY_L" : "FWD");
+            repeatKey(ImGuiKey_Keypad9, rotateMode ? "ROTX_R" : "DOWN");
+            repeatKey(ImGuiKey_Keypad4, rotateMode ? "ROTZ_L" : "LEFT");
+            repeatKey(ImGuiKey_Keypad6, rotateMode ? "ROTZ_R" : "RIGHT");
+            repeatKey(ImGuiKey_Keypad5, rotateMode ? "ROTY_R" : "BACK");
+            pressKey(ImGuiKey_Keypad2, "MODE_TOGGLE"); // one-shot: holding shouldn't spam-toggle
+            pressKey(ImGuiKey_Keypad3, "DESPAWN");
+            pressKey(ImGuiKey_KeypadAdd, "TARGET_LOCK"); // unchanged
+            pressKey(ImGuiKey_KeypadDivide, "CANCEL_PLACEMENT");
+            pressKey(ImGuiKey_KeypadMultiply, "GRAB_TARGET");
+            pressKey(ImGuiKey_Keypad0, "CONFIRM_PLACEMENT");
+            pressKey(ImGuiKey_KeypadDecimal, "TOGGLE_FREEBUILD");
+            // Keypad1 (Release Cursor): the reverse of what it does in-game -- this window ALREADY
+            // has OS focus while receiving these keypresses, so "steal focus for the window" is a
+            // no-op on itself; hand focus back to the game instead, the only sensible meaning here.
+            if (ImGui::IsKeyPressed(ImGuiKey_Keypad1, false))
+            {
+                StandaloneWindow::ReturnFocusToGame();
+            }
+            // F4: convenience alias for Despawn, next to SpawnMenu's own F2/F3 (Spawn/Replace).
+            pressKey(ImGuiKey_F4, "DESPAWN");
+            if (ImGui::IsKeyPressed(ImGuiKey_Z, false) && ImGui::GetIO().KeyCtrl)
+            {
+                queueAction("UNDO");
+            }
+            // Numpad Subtract (Open/close the window) is handled in StandaloneWindow.cpp, not here
+            // -- it has to work even while this window is CLOSED, which is outside this file's
+            // reach entirely.
         }
 
         // Shrinks `text` to fit `maxWidth`, appending "..." if it had to cut anything, and always
@@ -185,26 +211,22 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::Spacing();
         ImGui::Separator();
 
-        // In-Game Keys (renamed from "Tools Active" 2026-08-16, SCOPE NARROWED the same day --
-        // RedFalcon: "I want to split ingame keyboard keys from the GUI window... disabling in-game
-        // keys should disable ONLY the keys in the game"). This toggle now ONLY gates LivingBase's
-        // own keyboard keys (placement/live-edit/cycle/clear, main.lua's modGate) -- it no longer
-        // has any effect on this panel's own buttons below, which stay usable regardless (the GUI
-        // is the primary intended workflow now; main.lua's GUI-side handlers use restoreGate, not
-        // modGate, precisely so they're independent of this flag). Still shown/toggleable here
-        // purely as a convenience mirror of the in-game Insert key, same reasoning as always for why
-        // it stays clickable outside the disabled block: there'd be no way to turn keys back on
-        // otherwise.
+        // Floor Clipping (2026-08-24, numpad-only keybind rebuild -- repurposes this same UI slot,
+        // was "In-Game Keys"). The whole "In-Game Keys"/modEnabled concept it used to control is
+        // gone: key availability is purely "is this window open" now, so there's nothing left for
+        // a separate enable/disable toggle to do. This slot now shows/controls Spawner.
+        // _placementFreeBuild instead (MenuStatus::IsFreeBuild()), same underlying toggle as the
+        // in-game Numpad '.' key and F8 before it.
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("In-Game Keys");
+        ImGui::TextUnformatted("Floor Clipping");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(wide2);
-        bool enabled = MenuStatus::IsEnabled();
-        if (ImGui::Checkbox("##ingame_keys", &enabled))
+        bool freebuild = MenuStatus::IsFreeBuild();
+        if (ImGui::Checkbox("##floor_clipping", &freebuild))
         {
-            queueAction("TOGGLE_ENABLE");
+            queueAction("TOGGLE_FREEBUILD");
         }
-        HoverTooltip("LivingBase's own keyboard keys on or off (placement/live-edit/cycle/clear) -- mirrors the in-game Insert key. Does NOT affect this panel's own buttons. Off by default each session.");
+        HoverTooltip("Toggle floor-lock off/on globally for placement -- mirrors the in-game Numpad '.' key.");
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -224,57 +246,79 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         const bool hasTarget = !MenuStatus::TargetLabel().empty();
         ImGui::BeginDisabled(!hasTarget);
 
+        // Move/Rotate mode indicator (2026-08-24, numpad-only keybind rebuild): drives this row's
+        // "Move" label AND the Rotate section's own X/Y/Z row highlight below -- computed once,
+        // shared by both, so they can never show conflicting state.
+        const bool rotateModeActive = (MenuStatus::PlacementMode() == "ROTATE");
+
         // Slide: a true D-pad cross (Forward/Backward centered over the gap between Left/Right),
         // matching RedFalcon's own mockup layout.
         ImGui::Dummy(ImVec2(cellW, cellH));
         ImGui::SameLine();
-        repeatButton("Forward", "FWD", cellW, cellH, "Slide forward (Up arrow)");
+        repeatButton("Forward", "FWD", cellW, cellH, "Slide forward (Numpad 8)");
 
-        repeatButton("Left", "LEFT", cellW, cellH, "Slide left (Left arrow)");
+        repeatButton("Left", "LEFT", cellW, cellH, "Slide left (Numpad 4)");
         ImGui::SameLine();
-        // Coords sits in the D-pad's otherwise-empty center cell -- already covered by the
-        // hasTarget gate above (CoordsMenu::Open() reads MenuStatus's target snapshot, which is
-        // meaningless with nothing locked).
+        // "Move" mode-indicator label sits in the D-pad's otherwise-empty center cell (Coords
+        // relocated below, next to Down) -- styled like the Rotate section's own inert axis
+        // labels, and lit with INVERTED polarity relative to those: bright here in Move mode, dark
+        // in Rotate mode (exactly the opposite of X/Y/Z below) -- together, exactly one side is
+        // ever lit, an unambiguous mode indicator.
+        if (!rotateModeActive)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_CheckMark]);
+        }
+        ImGui::BeginDisabled();
+        ImGui::Button("Move", ImVec2(cellW, cellH));
+        ImGui::EndDisabled();
+        if (!rotateModeActive)
+        {
+            ImGui::PopStyleColor();
+        }
+        HoverTooltip(!rotateModeActive ? "Move mode is active -- Numpad 2 to switch to Rotate" : nullptr);
+        ImGui::SameLine();
+        repeatButton("Right", "RIGHT", cellW, cellH, "Slide right (Numpad 6)");
+
+        ImGui::Dummy(ImVec2(cellW, cellH));
+        ImGui::SameLine();
+        repeatButton("Backward", "BACK", cellW, cellH, "Slide backward (Numpad 5)");
+
+        ImGui::Spacing();
+
+        // Height: Up/Down, plus Coords relocated here (2026-08-24, numpad rebuild -- was in the
+        // D-pad's center cell, now occupied by the "Move" mode-indicator label above).
+        repeatButton("Up", "UP", cellW, cellH, "Raise (PageUp / Numpad 7 in Move mode)");
+        ImGui::SameLine();
+        repeatButton("Down", "DOWN", cellW, cellH, "Lower (PageDown / Numpad 9 in Move mode)");
+        ImGui::SameLine();
+        // CoordsMenu::Open() reads MenuStatus's target snapshot, which is meaningless with nothing
+        // locked -- covered by the hasTarget gate this whole block is already inside.
         if (ImGui::Button("Coords", ImVec2(cellW, cellH)))
         {
             CoordsMenu::Open();
         }
         HoverTooltip(hasTarget ? "Edit the target's exact X/Y/Z/Rotation" : "Target-lock something first (Num +)");
-        ImGui::SameLine();
-        repeatButton("Right", "RIGHT", cellW, cellH, "Slide right (Right arrow)");
-
-        ImGui::Dummy(ImVec2(cellW, cellH));
-        ImGui::SameLine();
-        repeatButton("Backward", "BACK", cellW, cellH, "Slide backward (Down arrow)");
-
-        ImGui::Spacing();
-
-        // Height: Up/Down, on their own row now that Rotate (below) needs its own 3 rows.
-        repeatButton("Up", "UP", cellW, cellH, "Raise (PageUp)");
-        ImGui::SameLine();
-        repeatButton("Down", "DOWN", cellW, cellH, "Lower (PageDown)");
 
         ImGui::Spacing();
         ImGui::Separator();
 
         // Rotate: full 3-axis control (2026-08-18, replacing the old single-axis Rot L/R + Flip
-        // 180 -- RedFalcon: "not useful as much" once every axis is directly reachable, and props
-        // that can rest at any angle -- a coin, an ingot, a dropped weapon -- need more than yaw,
-        // unlike a statue/NPC). One row per axis, "<-" / axis letter / "->", X/Y/Z = Roll/Pitch/Yaw
-        // (Unreal's own FRotator convention). Each button sends the exact same MOVE:ROTx_L/R
-        // request the keyboard's ','/'.' send once pointed at that axis (see pollKeyboard's own
-        // comment) -- clicking here and using the keyboard are just two paths to the same action.
+        // 180). One row per axis, "<-" / axis letter / "->", X/Y/Z = Roll/Pitch/Yaw (Unreal's own
+        // FRotator convention). The buttons themselves are always mouse-clickable regardless of
+        // mode -- clicking one sends the exact same MOVE:ROTx_L/R request whether Move or Rotate
+        // mode is active. Numpad 2 (or this window's own Keypad2 mirror) toggles Rotate mode,
+        // which drives all three rows' direction keys (7/8/9/4/6/5) at once -- no per-axis
+        // selection anymore, so all three rows light up TOGETHER now instead of just one.
         ImGui::TextUnformatted("Rotate");
         ImGui::SameLine();
-        ImGui::TextDisabled("(keyboard: , . rotates axis  |  / switches which)");
+        ImGui::TextDisabled("(Numpad 2 switches Move/Rotate)");
         {
             // Middle cell is a plain (non-interactive) label, not a real button -- BeginDisabled
             // keeps it visibly inert (ImGui's own standard "not clickable" look, used elsewhere in
             // this codebase for the same reason) while still letting a pushed background color
-            // show through dimmed, which is what actually communicates "active axis" here.
-            auto axisRow = [&](const char* label, const char* leftAction, const char* rightAction, const std::string& current)
+            // show through dimmed, which is what actually communicates "Rotate mode is active" here.
+            auto axisRow = [&](const char* label, const char* leftAction, const char* rightAction)
             {
-                const bool isKeyboardAxis = (MenuStatus::RotateAxis() == current);
                 // "##" + leftAction/rightAction (2026-08-24, RedFalcon's bug report: ImGui's own
                 // "3 visible items with conflicting ID" popup on hover) -- repeatButton's ID comes
                 // straight from its label (plain ImGui::Button(label, ...)), and all three axis
@@ -285,24 +329,24 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
                 // (text after `##` is ID-only, never shown).
                 repeatButton(("<-##" + std::string(leftAction)).c_str(), leftAction, cellW, cellH);
                 ImGui::SameLine();
-                if (isKeyboardAxis)
+                if (rotateModeActive)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_CheckMark]);
                 }
                 ImGui::BeginDisabled();
                 ImGui::Button(label, ImVec2(cellW, cellH));
                 ImGui::EndDisabled();
-                if (isKeyboardAxis)
+                if (rotateModeActive)
                 {
                     ImGui::PopStyleColor();
                 }
-                HoverTooltip(isKeyboardAxis ? "This is the axis ','/'.' currently rotate -- press '/' to switch" : nullptr);
+                HoverTooltip(rotateModeActive ? "Rotate mode is active -- Numpad 2 to switch to Move" : nullptr);
                 ImGui::SameLine();
                 repeatButton(("->##" + std::string(rightAction)).c_str(), rightAction, cellW, cellH);
             };
-            axisRow("X", "ROTX_L", "ROTX_R", "X");
-            axisRow("Y", "ROTY_L", "ROTY_R", "Y");
-            axisRow("Z", "ROTZ_L", "ROTZ_R", "Z");
+            axisRow("X", "ROTX_L", "ROTX_R");
+            axisRow("Y", "ROTY_L", "ROTY_R");
+            axisRow("Z", "ROTZ_L", "ROTZ_R");
         }
 
         ImGui::EndDisabled(); // !hasTarget
@@ -310,9 +354,10 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Precision: how big a step Up/Down/slide take per nudge (rotate is unaffected). Shared
-        // state with the keyboard's own Num- cycle -- see handleMoveMenuPrecision's own comment in
-        // main.lua for why the two can't drift far even though they track separate cursor state.
+        // Precision: how big a step Up/Down/slide take per nudge (rotate is unaffected). This
+        // slider is the ONLY way to change it now (2026-08-24, numpad-only keybind rebuild -- the
+        // old in-game Num- precision cycle is gone, Num- is the window Open/Close key now) -- see
+        // handleMoveMenuPrecision's own comment in main.lua.
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Precision");
         ImGui::SameLine();
@@ -328,18 +373,19 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Despawn/Undo: matches the keyboard's Num9 (despawn in front) / Num0 (restore last
-        // despawn) -- distinct from Delete All below, which clears EVERYTHING. Despawn requires a
-        // locked target (RedFalcon, 2026-08-16 -- it only ever acts on the targeted object, same
-        // reasoning as the movement block and Replace above); Undo doesn't, since it operates on
-        // the last despawn regardless of what's currently locked.
+        // Despawn/Undo: matches the numpad's 3 (despawn in front) / this window's own Ctrl+Z
+        // (restore last despawn -- no in-game key anymore, GUI-only) -- distinct from Delete All
+        // below, which clears EVERYTHING. Despawn requires a locked target (RedFalcon, 2026-08-16
+        // -- it only ever acts on the targeted object, same reasoning as the movement block and
+        // Replace above); Undo doesn't, since it operates on the last despawn regardless of what's
+        // currently locked.
         ImGui::BeginDisabled(!hasTarget);
         if (ImGui::Button("Despawn", ImVec2(cellW, cellH)))
         {
             queueAction("DESPAWN");
         }
         ImGui::EndDisabled();
-        HoverTooltip(hasTarget ? "Despawn the targeted object (Num9)" : "Target-lock something first (Num +)");
+        HoverTooltip(hasTarget ? "Despawn the targeted object (Numpad 3 / F4)" : "Target-lock something first (Num +)");
         ImGui::SameLine();
         ImGui::Dummy(ImVec2(cellW, cellH));
         ImGui::SameLine();
@@ -347,7 +393,7 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         {
             queueAction("UNDO");
         }
-        HoverTooltip("Restore the last despawn (Num0)");
+        HoverTooltip("Restore the last despawn (Ctrl+Z)");
 
         // Delete All: kept at the bottom, deliberately separated from everything else above, and
         // gated behind a real confirmation popup -- this destroys every actor LivingBase has
