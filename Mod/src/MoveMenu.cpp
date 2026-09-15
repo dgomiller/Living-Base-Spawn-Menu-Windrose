@@ -195,12 +195,29 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
 
         // Target readout: what Num+ (or the toggle-lock in-window keybind) currently has locked --
         // see MenuStatus.hpp/main.lua's "SPAWN MENU STATUS" comment for how this gets here.
+        // "+"/"-" button (2026-09-14, RedFalcon: "next to the target text boxes, let's put a +
+        // button that recreates pressing num +, and make it look like - when a target is selected
+        // to imply untargeting") -- fires the exact same ACTION:TARGET_LOCK line the Numpad+ key
+        // itself sends (pressKey(ImGuiKey_KeypadAdd, "TARGET_LOCK") above), so this button and the
+        // physical key can never disagree. Square, matching the box's own row height. The box
+        // itself shrinks by this button's width + one item-spacing gap so the COMBINED width still
+        // equals wide3 (RedFalcon: "make sure the final result is the same width as just the target
+        // box before").
+        const bool hasTarget = !MenuStatus::TargetLabel().empty();
+        const float lockBtnW = cellH;
+        const float labelBoxW = wide3 - lockBtnW - gap;
         ImGui::TextUnformatted("Selected Target:");
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyle().Colors[ImGuiCol_FrameBgHovered]);
-        ImGui::BeginChild("##target_label", ImVec2(wide3, cellH), true, ImGuiWindowFlags_NoScrollbar);
-        DrawTruncatedText(MenuStatus::TargetLabel(), wide3 - 16.0f);
+        ImGui::BeginChild("##target_label", ImVec2(labelBoxW, cellH), true, ImGuiWindowFlags_NoScrollbar);
+        DrawTruncatedText(MenuStatus::TargetLabel(), labelBoxW - 16.0f);
         ImGui::EndChild();
         ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if (ImGui::Button(hasTarget ? "-" : "+", ImVec2(lockBtnW, cellH)))
+        {
+            queueAction("TARGET_LOCK");
+        }
+        HoverTooltip(hasTarget ? "Release target lock" : "Lock the currently hovered target");
         // Wrap (0.0f = wrap at the end of this child's own content region) instead of clip -- this
         // line got cut off mid-word at the panel's old width (confirmed live 2026-08-16); wrapping
         // is robust regardless of exactly how wide the panel ends up, unlike a fixed-width guess.
@@ -242,8 +259,8 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         // it has keyboard focus the player can't move their own character with WASD either, and a
         // D-pad nudge with nothing target-locked was confusing (looks clickable, does nothing).
         // Gating the whole block up front instead of piecemeal makes "you need Num + first" obvious
-        // at a glance rather than discovered button-by-button.
-        const bool hasTarget = !MenuStatus::TargetLabel().empty();
+        // at a glance rather than discovered button-by-button. (hasTarget itself is computed once,
+        // up near the target box, and reused here.)
         ImGui::BeginDisabled(!hasTarget);
 
         // Move/Rotate mode indicator (2026-08-24, numpad-only keybind rebuild): drives this row's
@@ -361,7 +378,12 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Precision");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(wide2);
+        // Width computed to reach wide3 (the SAME right edge every other full-width row in this
+        // panel ends at), not a fixed wide2 (2026-09-14, RedFalcon: "can we make the precision
+        // slider's length end at the same place as everything else to keep it balanced") -- a fixed
+        // width left it short of that edge since "Precision" + this SameLine() eats some of wide3
+        // before the slider even starts, unlike a row with no leading label.
+        ImGui::SetNextItemWidth(wide3 - ImGui::GetCursorPosX());
         int idx = g_precision_idx;
         if (ImGui::SliderInt("##precision", &idx, 0, 5, PRECISION_LABELS[idx]))
         {

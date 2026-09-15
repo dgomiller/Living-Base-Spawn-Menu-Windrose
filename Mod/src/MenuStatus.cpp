@@ -28,9 +28,11 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         float g_target_yaw = 0.0f;
         float g_target_pitch = 0.0f;
         float g_target_roll = 0.0f;
+        std::string g_target_sex;
         int g_window_toggle_seq = 0;
         int g_focus_steal_seq = 0;
         std::string g_placement_mode = "MOVE"; // matches Spawner.placementMode's own default
+        bool g_placement_active = false;
 
         std::chrono::steady_clock::time_point g_last_poll{};
     } // namespace
@@ -105,9 +107,17 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 g_target_roll = std::strtof(value.c_str(), nullptr);
             }
+            else if (key == "TARGET_SEX")
+            {
+                g_target_sex = value;
+            }
             else if (key == "PLACEMENT_MODE")
             {
                 g_placement_mode = value;
+            }
+            else if (key == "PLACEMENT_ACTIVE")
+            {
+                g_placement_active = (value == "1");
             }
             else if (key == "WINDOW_TOGGLE")
             {
@@ -130,7 +140,9 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetYaw() -> float { return g_target_yaw; }
     auto TargetPitch() -> float { return g_target_pitch; }
     auto TargetRoll() -> float { return g_target_roll; }
+    auto TargetSex() -> const std::string& { return g_target_sex; }
     auto PlacementMode() -> const std::string& { return g_placement_mode; }
+    auto IsPlacementActive() -> bool { return g_placement_active; }
     auto WindowToggleSeq() -> int { return g_window_toggle_seq; }
     auto FocusStealSeq() -> int { return g_focus_steal_seq; }
 

@@ -1,9 +1,11 @@
 #include <StandaloneWindow.hpp>
 
+#include <BarbieMenu.hpp>
 #include <CoordsMenu.hpp>
 #include <CustomMenu.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <HelpMenu.hpp>
+#include <ImageLoader.hpp>
 #include <MenuStatus.hpp>
 #include <MoveMenu.hpp>
 #include <SpawnMenu.hpp>
@@ -238,6 +240,11 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
             ImGui_ImplWin32_Init(hwnd);
             ImGui_ImplDX11_Init(g_device.Get(), g_device_context.Get());
 
+            // Must run AFTER the D3D11 device exists (ImageLoader::GetOrLoad needs it to create
+            // each swatch's texture/SRV) -- BarbieMenu.cpp's thumbnails load lazily on first Draw(),
+            // this just hands over the device to load them with.
+            ImageLoader::Init(g_device.Get());
+
             SpawnMenu::Reload();
             HelpMenu::ReloadNow();
 
@@ -449,6 +456,25 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                     }
                     if (ImGui::BeginTabItem("Custom", nullptr, customTabFlags))
                     {
+                        // Selected Target MOVED to the very top of the whole tab (2026-09-12,
+                        // RedFalcon: "let's move selected target to the top of the custom tab") --
+                        // it used to open CustomMenu::Draw() itself, which visually put it AFTER all
+                        // of BarbieMenu's own content below. DrawTargetHeader() is that same block,
+                        // extracted so it can run first regardless of which panel logically owns the
+                        // rest of what follows.
+                        CustomMenu::DrawTargetHeader();
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        // BarbieMenu (2026-09-11) above CustomMenu's Body/Hair/cloth-color panels --
+                        // Barbie is about PLACING a brand-new NPC (no target needed), everything
+                        // below is about EDITING an already-target-locked one; putting the
+                        // target-agnostic panel first avoids implying Barbie spawning needs a target
+                        // selected too.
+                        BarbieMenu::Draw();
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
                         CustomMenu::Draw();
                         ImGui::EndTabItem();
                     }
@@ -480,6 +506,10 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 
                 g_swap_chain->Present(1, 0);
             }
+
+            // Before the device itself is torn down below -- every cached SRV/texture in
+            // ImageLoader was created FROM this device, must not outlive it.
+            ImageLoader::ReleaseAll();
 
             ImGui_ImplDX11_Shutdown();
             ImGui_ImplWin32_Shutdown();

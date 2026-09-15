@@ -20,10 +20,12 @@ add_library(${TARGET} SHARED
         src/CoordsMenu.cpp
         src/HelpMenu.cpp
         src/CustomMenu.cpp
+        src/ImageLoader.cpp
+        src/BarbieMenu.cpp
         "${ImGui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp"
 )
 
 target_include_directories(${TARGET} PRIVATE "include")
 target_link_libraries(${TARGET} PRIVATE ImGui)
-target_link_libraries(${TARGET} PRIVATE d3d12 dxgi)
+target_link_libraries(${TARGET} PRIVATE d3d11 d3d12 dxgi windowscodecs)
 target_link_libraries(${TARGET} PUBLIC UE4SS)

@@ -47,6 +47,14 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetPitch() -> float;
     auto TargetRoll() -> float;
 
+    // "M"/"F"/"" (2026-09-12, RedFalcon: "no need to facial hair for women so we will disable it on
+    // a selected female") -- read from the target's own CompositeMeshComponent GetBodySex() on the
+    // Lua side, same call ApplyHairCategoryMesh/Color already use. Empty when nothing's locked or
+    // the target has no CompositeMeshComponent at all -- callers should treat "" the same as "M"
+    // (don't grey out) rather than assuming female, since most non-character actors simply have no
+    // sex concept at all.
+    auto TargetSex() -> const std::string&;
+
     // "MOVE" or "ROTATE" -- which meaning the six dual-purpose numpad direction keys (7/8/9/4/6/5,
     // and this window's own mirror of them) currently have (2026-08-24, numpad-only keybind
     // rebuild -- replaces the old single-axis RotateAxis()/','/'.'/'/ ' cycle concept, which no
@@ -56,6 +64,16 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // (movement doesn't apply to an object the follow loop already owns position of), back to
     // "MOVE" once that's confirmed/cancelled.
     auto PlacementMode() -> const std::string&;
+
+    // Spawner._placementActive (2026-09-11) -- TRUE for the whole live-follow-the-camera placement
+    // session (from Start*PlacementPreview through Confirm/CancelPlacement), regardless of which
+    // object is being placed. A strictly narrower, more reliable signal than
+    // PlacementMode()=="ROTATE" for "is something actively being moved right now" -- ROTATE mode
+    // auto-engages during placement but can also be set manually (Numpad 2) with nothing being
+    // placed at all. Used to disable BarbieMenu's own Zoom In/Out button mid-placement (RedFalcon:
+    // "clicking it while it can be moved is a problem" -- switching the view to the tripod camera
+    // fights the follow-loop's own player-camera-relative math).
+    auto IsPlacementActive() -> bool;
 
     // Bumped by main.lua every time '-' is pressed (see Config.KEYS.toggleWindow's own comment) --
     // StandaloneWindow compares this against the last value it saw each frame and flips its own

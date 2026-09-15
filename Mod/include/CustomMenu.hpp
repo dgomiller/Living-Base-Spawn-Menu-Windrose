@@ -18,6 +18,12 @@
 // in this bridge already follows (SpawnMenu/MoveMenu headers have the fuller reasoning).
 namespace RC::LivingBaseSpawnMenu::CustomMenu
 {
+    // The "Selected Target" readout, extracted out of Draw() (2026-09-12, RedFalcon: "let's move
+    // selected target to the top of the custom tab") so it can run BEFORE BarbieMenu::Draw() in the
+    // overall Custom tab, even though the rest of this file's own content (Body/Hair/cloth-color
+    // panels) still runs after it.
+    auto DrawTargetHeader() -> void;
+
     // Draws the panel into the CURRENT ImGui window -- call from inside an existing
     // BeginTabItem("Custom")/EndTabItem() pair, same convention as SpawnMenu::Draw()/MoveMenu::Draw().
     auto Draw() -> void;
