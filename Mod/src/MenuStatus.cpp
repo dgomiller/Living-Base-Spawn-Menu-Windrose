@@ -29,10 +29,17 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         float g_target_pitch = 0.0f;
         float g_target_roll = 0.0f;
         std::string g_target_sex;
+        bool g_target_static = false;
+        bool g_target_is_character = true; // see TargetIsCharacter()'s own header for the default
         int g_window_toggle_seq = 0;
         int g_focus_steal_seq = 0;
         std::string g_placement_mode = "MOVE"; // matches Spawner.placementMode's own default
         bool g_placement_active = false;
+        // Pose scrub status (2026-09-21) -- see ScrubActive()'s own header comment.
+        bool g_scrub_active = false;
+        bool g_scrub_paused = false;
+        int g_scrub_frame = 0;
+        int g_scrub_numframes = 0;
 
         std::chrono::steady_clock::time_point g_last_poll{};
     } // namespace
@@ -111,6 +118,14 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 g_target_sex = value;
             }
+            else if (key == "TARGET_STATIC")
+            {
+                g_target_static = (value == "1");
+            }
+            else if (key == "TARGET_ISCHARACTER")
+            {
+                g_target_is_character = (value == "1");
+            }
             else if (key == "PLACEMENT_MODE")
             {
                 g_placement_mode = value;
@@ -118,6 +133,22 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             else if (key == "PLACEMENT_ACTIVE")
             {
                 g_placement_active = (value == "1");
+            }
+            else if (key == "SCRUB_ACTIVE")
+            {
+                g_scrub_active = (value == "1");
+            }
+            else if (key == "SCRUB_PAUSED")
+            {
+                g_scrub_paused = (value == "1");
+            }
+            else if (key == "SCRUB_FRAME")
+            {
+                g_scrub_frame = std::atoi(value.c_str());
+            }
+            else if (key == "SCRUB_NUMFRAMES")
+            {
+                g_scrub_numframes = std::atoi(value.c_str());
             }
             else if (key == "WINDOW_TOGGLE")
             {
@@ -141,8 +172,14 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetPitch() -> float { return g_target_pitch; }
     auto TargetRoll() -> float { return g_target_roll; }
     auto TargetSex() -> const std::string& { return g_target_sex; }
+    auto TargetIsStatic() -> bool { return g_target_static; }
+    auto TargetIsCharacter() -> bool { return g_target_is_character; }
     auto PlacementMode() -> const std::string& { return g_placement_mode; }
     auto IsPlacementActive() -> bool { return g_placement_active; }
+    auto ScrubActive() -> bool { return g_scrub_active; }
+    auto ScrubPaused() -> bool { return g_scrub_paused; }
+    auto ScrubFrame() -> int { return g_scrub_frame; }
+    auto ScrubNumFrames() -> int { return g_scrub_numframes; }
     auto WindowToggleSeq() -> int { return g_window_toggle_seq; }
     auto FocusStealSeq() -> int { return g_focus_steal_seq; }
 

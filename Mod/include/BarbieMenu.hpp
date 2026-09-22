@@ -12,4 +12,12 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
     // Draws both grids + the Spawn button into the CURRENT ImGui window -- call this from inside an
     // existing ImGui::Begin()/End() pair, same as any other panel's Draw().
     auto Draw() -> void;
+
+    // Full Body/Face View/orbit rotate buttons for whatever's currently target-locked (2026-09-16,
+    // moved out of Draw() -- RedFalcon: "Move the camera buttons to the right of the target window"
+    // -- this now lives in CustomMenu::DrawTargetHeader() instead, positioned there so "Face View"
+    // lines up with "Read Current"). Left in BarbieMenu.cpp/this namespace rather than a shared
+    // header because its own state (g_zoomMode, kPreviewSize, the write-request helpers) is all
+    // file-local here and none of it is needed anywhere else.
+    auto DrawCameraControls() -> void;
 } // namespace RC::LivingBaseSpawnMenu::BarbieMenu

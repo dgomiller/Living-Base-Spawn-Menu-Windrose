@@ -378,6 +378,12 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         ImGui::IsKeyPressed(ImGuiKey_F1, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 const ImGuiTabItemFlags historyTabFlags =
                         ImGui::IsKeyPressed(ImGuiKey_F10, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                // F7 (2026-09-21, new "Photo Mode" tab: Camera + Lights) -- F7/F8 were retired from
+                // their old grab-target/free-build meanings by the 2026-08-24 numpad rebuild (see
+                // config.lua's own "was F7"/"was F8" comments), so both are genuinely free; F12 is
+                // Steam's own screenshot hotkey (config.lua's own comment) and stays avoided.
+                const ImGuiTabItemFlags photoModeTabFlags =
+                        ImGui::IsKeyPressed(ImGuiKey_F7, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
 
                 // Pin the ImGui content window to exactly fill the native OS window's client area,
                 // with none of ImGui's own title bar/resize border/drag handling -- the native
@@ -392,6 +398,47 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
                         | ImGuiWindowFlags_NoBringToFrontOnFocus;
                 ImGui::Begin(WINDOW_TITLE, nullptr, kRootWindowFlags);
+
+                // Windowshade toggle (2026-09-21, RedFalcon: "add a windowshade mode button to the
+                // entire menu window so that only the title bar is visible") -- this window is a
+                // REAL native WS_OVERLAPPEDWINDOW (see its own CreateWindowExW comment above), and
+                // ImGui's content area is pinned to exactly match its client rect (io.DisplaySize,
+                // set just above) -- so "windowshade" here means actually resizing the NATIVE window
+                // down to just its own title bar via SetWindowPos, not an ImGui-level collapse (this
+                // window deliberately has ImGuiWindowFlags_NoCollapse, since ImGui's own title bar is
+                // suppressed entirely in favor of the real OS one). A thin 32px client strip is kept
+                // even while shaded -- just enough room for this SAME button to stay visible/
+                // clickable, since a fully zero-height client area would leave no way to un-shade.
+                static bool g_windowShaded = false;
+                static int g_savedWindowHeight = 590; // CreateWindowExW's own initial height; overwritten the first time this actually runs
+                if (ImGui::SmallButton(g_windowShaded ? "\xE2\x96\xBC Expand" : "\xE2\x96\xB2 Shade"))
+                {
+                    RECT rect{};
+                    GetWindowRect(hwnd, &rect);
+                    const int width = rect.right - rect.left;
+                    if (!g_windowShaded)
+                    {
+                        g_savedWindowHeight = rect.bottom - rect.top;
+                        // AdjustWindowRectEx: the correct Win32 way to turn "N pixels of CLIENT
+                        // area" into the full outer window size for THIS window's real style/border,
+                        // rather than hand-guessing caption/border metrics.
+                        RECT client{0, 0, width, 32};
+                        AdjustWindowRectEx(&client, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_TOPMOST);
+                        SetWindowPos(hwnd, nullptr, rect.left, rect.top, width, client.bottom - client.top, SWP_NOZORDER);
+                    }
+                    else
+                    {
+                        SetWindowPos(hwnd, nullptr, rect.left, rect.top, width, g_savedWindowHeight, SWP_NOZORDER);
+                    }
+                    g_windowShaded = !g_windowShaded;
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("%s", g_windowShaded
+                        ? "Restore this window to its previous size."
+                        : "Collapse this window down to just the title bar.");
+                }
+
                 // Four top-level tabs: Tools (the original spawn tree + move panel content), Custom
                 // (2026-09-08, RedFalcon's per-category cloth-color panel -- see CustomMenu.hpp),
                 // Instructions, and History. PIVOT (2026-08-16): Instructions/History used to live
@@ -402,6 +449,12 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // race), so RedFalcon asked to fold everything back into ordinary tabs in this one
                 // already-working window instead of continuing to chase races in a two-thread ImGui
                 // setup. See HelpMenu.hpp for the fuller history.
+                //
+                // Skipped entirely while windowshaded (2026-09-21) -- there's no room to draw any of
+                // this in the 32px strip the native window shrinks to anyway, and skipping avoids
+                // ImGui laying out (and clipping) a full tab bar's worth of content into almost no
+                // space every frame.
+                if (!g_windowShaded) {
                 if (ImGui::BeginTabBar("##spawnmenu_tabs"))
                 {
                     if (ImGui::BeginTabItem("Tools", nullptr, toolsTabFlags))
@@ -462,20 +515,41 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         // of BarbieMenu's own content below. DrawTargetHeader() is that same block,
                         // extracted so it can run first regardless of which panel logically owns the
                         // rest of what follows.
+                        //
+                        // Kept OUTSIDE the scrolling child below (2026-09-16, RedFalcon: "Is it
+                        // possible to keep the tabs and the target section visible on scroll so they
+                        // are always accessible?") -- everything in a single ImGui window shares ONE
+                        // scroll offset, so once this tab's own content (Spawn/Body/Clothes/Belts and
+                        // Straps) grew tall enough to need scrolling, the WHOLE window scrolled,
+                        // taking the tab bar and this target header with it. Wrapping just the
+                        // content below in its own BeginChild (same technique the "Tools" tab already
+                        // uses for its own two panes, sized to fill the exact remaining height of
+                        // this fixed-size root window) gives it an independent scroll region, so the
+                        // tab bar and this header never move.
                         CustomMenu::DrawTargetHeader();
                         ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        // BarbieMenu (2026-09-11) above CustomMenu's Body/Hair/cloth-color panels --
-                        // Barbie is about PLACING a brand-new NPC (no target needed), everything
-                        // below is about EDITING an already-target-locked one; putting the
-                        // target-agnostic panel first avoids implying Barbie spawning needs a target
-                        // selected too.
-                        BarbieMenu::Draw();
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
+                        const float customContentHeight = ImGui::GetContentRegionAvail().y;
+                        ImGui::BeginChild("##custom_tab_scroll", ImVec2(0.0f, customContentHeight), false);
+                        // "Spawn" -- BarbieMenu's own Body Type/Origin grids + Spawn button, hidden
+                        // by default (2026-09-16, RedFalcon: "First Section = Spawn - Hide by
+                        // default") -- Barbie is about PLACING a brand-new NPC (no target needed),
+                        // everything below is about EDITING an already-target-locked one.
+                        if (ImGui::CollapsingHeader("Spawn"))
+                        {
+                            BarbieMenu::Draw();
+                        }
                         CustomMenu::Draw();
+                        ImGui::EndChild();
+                        ImGui::EndTabItem();
+                    }
+                    // "Photo Mode" (2026-09-21, RedFalcon: "I want a new Photo Mode tab to have the
+                    // camera and lights in it") -- Lights lives in CustomMenu.cpp (it already owns
+                    // all the request/status-file plumbing this section needs) but is drawn from
+                    // its own tab here, not folded into the "Custom" tab above. Camera controls
+                    // will land here too once built.
+                    if (ImGui::BeginTabItem("Photo Mode", nullptr, photoModeTabFlags))
+                    {
+                        CustomMenu::DrawLightsSection();
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Instructions", nullptr, instructionsTabFlags))
@@ -490,6 +564,7 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                     }
                     ImGui::EndTabBar();
                 }
+                } // if (!g_windowShaded)
                 ImGui::End();
 
                 // CoordsMenu is a secondary window WITHIN this same context/thread (own Begin()/End()

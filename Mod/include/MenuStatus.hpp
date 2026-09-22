@@ -55,6 +55,24 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // sex concept at all.
     auto TargetSex() -> const std::string&;
 
+    // TARGET_STATIC (2026-09-16, RedFalcon: "set the ai toggle option to be disabled if a target is
+    // a statue or decor") -- true for a posed AnimatedActor/QuestStatic statue OR an inert decor
+    // prop (Spawner.IsDecorClass), read from the target's own class path on the Lua side (the SAME
+    // check the restore-pacing and follow-loop floor-lock logic already use independently elsewhere
+    // in spawner.lua/main.lua). None of these ever have a real AIController, so Spawner.SetAILogic's
+    // StartLogic/StopLogic calls have nothing to act on -- "" (no target) reads as false/not-static,
+    // same "don't grey out on empty/unknown" convention TargetSex() uses.
+    auto TargetIsStatic() -> bool;
+
+    // TARGET_ISCHARACTER (2026-09-21, RedFalcon: "keep the detect button disabled for any non
+    // character objects. The animals and decor should not be able to have their customizations
+    // scanned... same for monsterous as well") -- true only when the target has a real
+    // CompositeMeshComponent (the same customization-system signal TargetSex() already relies on --
+    // animals/decor/monsters never carry one). Defaults true (don't grey out) when nothing's locked
+    // yet, same "assume it's fine until proven otherwise" convention every other default in this file
+    // uses -- callers already gate on hasTarget separately for the no-target case.
+    auto TargetIsCharacter() -> bool;
+
     // "MOVE" or "ROTATE" -- which meaning the six dual-purpose numpad direction keys (7/8/9/4/6/5,
     // and this window's own mirror of them) currently have (2026-08-24, numpad-only keybind
     // rebuild -- replaces the old single-axis RotateAxis()/','/'.'/'/ ' cycle concept, which no
@@ -99,4 +117,15 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // Call once per frame from StandaloneWindow's render loop, same as Poll() above; cheap no-op
     // when nothing changed.
     auto PublishWindowVisible(bool visible) -> void;
+
+    // Pose scrub status (2026-09-21, RedFalcon's frame-by-frame pose scrubber follow-up: Play/
+    // Pause buttons, Frame</> steppers, and a scrub slider on the Custom tab's "Poses and Actions"
+    // section). Mirrors Spawner.PoseScrubGetStatus(lockedTarget)'s own return shape exactly --
+    // Active is false whenever nothing is currently scrubbing THIS locked target (a scrub left
+    // running on some other/former target reports inactive here, same as every other target-scoped
+    // status field in this file). Paused/Frame/NumFrames are only meaningful when Active is true.
+    auto ScrubActive() -> bool;
+    auto ScrubPaused() -> bool;
+    auto ScrubFrame() -> int;
+    auto ScrubNumFrames() -> int;
 } // namespace RC::LivingBaseSpawnMenu::MenuStatus

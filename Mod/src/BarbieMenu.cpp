@@ -371,6 +371,119 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
 
     } // namespace
 
+    // DrawCameraControls() -- Full Body/Face View/orbit rotate buttons for whatever's currently
+    // target-locked (2026-09-11 through 2026-09-14 -- see the button block's own inline comments,
+    // unchanged below, for the full history of each piece). MOVED here as its own function out of
+    // Draw() (2026-09-16, RedFalcon: "Move the camera buttons to the right of the target window.
+    // Keep them the size and order they are now, so 'Face View' would be aligned with 'Read
+    // Current'. No need for a camera label.") -- CustomMenu::DrawTargetHeader() now calls this
+    // directly instead, positioned there via its own SameLine; the old leading
+    // `ImGui::SameLine(0.0f, 40.0f)` (relative to the Body Type/Origin portraits in THIS file's own
+    // Draw()) and the "Camera" label text are both gone since neither makes sense in the new
+    // location -- the caller owns positioning now, and RedFalcon explicitly asked to drop the label.
+    auto DrawCameraControls() -> void
+    {
+        const bool has_target = !MenuStatus::TargetLabel().empty();
+        // Auto-reset label sync (2026-09-14, RedFalcon: "make it so that... losing a target
+        // reset the view") -- Lua's own pollCameraAutoReset already fires the real
+        // SetPhotoTripod("off", ...) reset when the target lock is lost while a camera mode is
+        // active; this side has no way to read that back directly (g_zoomMode is a purely local
+        // toggle, see its own declaration comment), but has_target going false while a mode is
+        // active is the SAME signal Lua used, so resetting it here too keeps the button label
+        // from going stale ("Zoom Out" lingering after the camera already reset itself).
+        if (g_zoomMode != ZoomMode::None && !has_target)
+        {
+            g_zoomMode = ZoomMode::None;
+        }
+        // Zooming back OUT never needs a target (it's just "go back to normal") -- only the
+        // initial Full Body/Face View click does. Each button independently allows itself to be
+        // clicked when IT is the currently-active mode (so it can turn itself back off) or when
+        // a target is locked (so it can turn itself on) -- clicking the OTHER button while one
+        // mode is already active is also allowed and switches straight over (Lua's
+        // FaceViewOnTarget/ZoomTripodOnTarget both reuse/reposition the same tripod actor rather
+        // than requiring an off/on cycle in between).
+        const bool can_click_fullbody = (g_zoomMode == ZoomMode::FullBody) || has_target;
+        const bool can_click_face = (g_zoomMode == ZoomMode::Face) || has_target;
+        // Disabled for the WHOLE duration of an active placement/relocate session, in either
+        // direction (2026-09-11, RedFalcon: "let's not enable it until placement... clicking it
+        // while it can be moved is a problem") -- switching the active view to/from the tripod
+        // camera fights the follow-loop's own player-camera-relative math regardless of which
+        // way the toggle is going.
+        const bool placement_active = MenuStatus::IsPlacementActive();
+        ImGui::BeginGroup();
+        // Normal button height (2026-09-11, RedFalcon: "same height as the buttons on the tools
+        // page") -- 0.0f height means ImGui's own default frame height, same convention every
+        // OTHER real button in this mod uses (Spawn/Replace/Spawn Custom); kPreviewSize was only
+        // ever this button's height because it started life visually paired with the swatches
+        // above, not because anything about the layout required it.
+        ImGui::BeginDisabled(!can_click_fullbody || placement_active || MenuStatus::IsRestoring());
+        if (ImGui::Button(g_zoomMode == ZoomMode::FullBody ? "Zoom Out" : "Full Body", ImVec2(kPreviewSize, 0.0f)))
+        {
+            if (g_zoomMode == ZoomMode::FullBody)
+            {
+                WriteZoomRequest("UNZOOM");
+                g_zoomMode = ZoomMode::None;
+            }
+            else
+            {
+                WriteZoomRequest("ZOOM");
+                g_zoomMode = ZoomMode::FullBody;
+            }
+        }
+        ImGui::EndDisabled();
+        // "Face View" (2026-09-13, RedFalcon: "add another button under it that is Face View")
+        // -- plain sequential Button() call, no SameLine(), so it stacks directly under Full
+        // Body inside the same group.
+        ImGui::BeginDisabled(!can_click_face || placement_active || MenuStatus::IsRestoring());
+        if (ImGui::Button(g_zoomMode == ZoomMode::Face ? "Zoom Out" : "Face View", ImVec2(kPreviewSize, 0.0f)))
+        {
+            if (g_zoomMode == ZoomMode::Face)
+            {
+                WriteZoomRequest("UNZOOM");
+                g_zoomMode = ZoomMode::None;
+            }
+            else
+            {
+                WriteZoomRequest("FACE");
+                g_zoomMode = ZoomMode::Face;
+            }
+        }
+        ImGui::EndDisabled();
+        // Camera orbit rotate buttons (2026-09-14, RedFalcon: "under face view add <- and ->
+        // buttons to rotate on the Z axis no need for a label. Make them fit so the two of them
+        // fit the width of the button above", widened same day: "can you also make it work in
+        // full body view?") -- meaningful whenever EITHER camera mode is active (no live tripod
+        // yaw to nudge otherwise), so gated on that instead of can_click_face/can_click_fullbody.
+        // Each is half kPreviewSize wide minus half the item spacing, so the pair together span
+        // exactly kPreviewSize, matching Full Body/Face View above them. Which mode is currently
+        // active decides the payload's MODE tag (see WriteFaceViewRotateRequest's own header).
+        {
+            const bool can_rotate = (g_zoomMode != ZoomMode::None) && !placement_active && !MenuStatus::IsRestoring();
+            const char* rotate_mode = (g_zoomMode == ZoomMode::FullBody) ? "FULLBODY" : "FACE";
+            const float halfW = (kPreviewSize - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+            ImGui::BeginDisabled(!can_rotate);
+            if (ImGui::Button("<##faceview_rotate_left", ImVec2(halfW, 0.0f)))
+            {
+                WriteFaceViewRotateRequest(rotate_mode, -kFaceViewRotateStepDegrees);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(">##faceview_rotate_right", ImVec2(halfW, 0.0f)))
+            {
+                WriteFaceViewRotateRequest(rotate_mode, kFaceViewRotateStepDegrees);
+            }
+            ImGui::EndDisabled();
+        }
+        // "(no target)" caption removed (2026-09-16, RedFalcon: "remove no target from under the
+        // camera buttons when no target") -- now that this group sits right next to the target box
+        // itself (moved into CustomMenu::DrawTargetHeader(), see that call site's own comment), the
+        // caption was redundant with the target box already showing nothing selected.
+        if (placement_active)
+        {
+            ImGui::TextDisabled("(placing...)");
+        }
+        ImGui::EndGroup();
+    }
+
     auto Draw() -> void
     {
         const bool has_bodytype = g_selected_bodytype_row >= 0;
@@ -422,115 +535,6 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
             ImGui::TextDisabled("(none)");
         }
         ImGui::EndGroup();
-
-        // "Zoom In" (2026-09-11, RedFalcon: "a button to the right of the portraits that only
-        // toggles on when there's a target... point it at the middle of the actor... and pull back
-        // from its front 200u") -- gated on the SAME target-lock CustomMenu.cpp's own cloth-color
-        // panel uses, not the Body Type/Origin picks -- this operates on whatever's currently
-        // target-locked (Num+), independent of the Barbie spawner above it.
-        {
-            const bool has_target = !MenuStatus::TargetLabel().empty();
-            // Auto-reset label sync (2026-09-14, RedFalcon: "make it so that... losing a target
-            // reset the view") -- Lua's own pollCameraAutoReset already fires the real
-            // SetPhotoTripod("off", ...) reset when the target lock is lost while a camera mode is
-            // active; this side has no way to read that back directly (g_zoomMode is a purely local
-            // toggle, see its own declaration comment), but has_target going false while a mode is
-            // active is the SAME signal Lua used, so resetting it here too keeps the button label
-            // from going stale ("Zoom Out" lingering after the camera already reset itself).
-            if (g_zoomMode != ZoomMode::None && !has_target)
-            {
-                g_zoomMode = ZoomMode::None;
-            }
-            // Zooming back OUT never needs a target (it's just "go back to normal") -- only the
-            // initial Full Body/Face View click does. Each button independently allows itself to be
-            // clicked when IT is the currently-active mode (so it can turn itself back off) or when
-            // a target is locked (so it can turn itself on) -- clicking the OTHER button while one
-            // mode is already active is also allowed and switches straight over (Lua's
-            // FaceViewOnTarget/ZoomTripodOnTarget both reuse/reposition the same tripod actor rather
-            // than requiring an off/on cycle in between).
-            const bool can_click_fullbody = (g_zoomMode == ZoomMode::FullBody) || has_target;
-            const bool can_click_face = (g_zoomMode == ZoomMode::Face) || has_target;
-            // Disabled for the WHOLE duration of an active placement/relocate session, in either
-            // direction (2026-09-11, RedFalcon: "let's not enable it until placement... clicking it
-            // while it can be moved is a problem") -- switching the active view to/from the tripod
-            // camera fights the follow-loop's own player-camera-relative math regardless of which
-            // way the toggle is going.
-            const bool placement_active = MenuStatus::IsPlacementActive();
-            ImGui::SameLine(0.0f, 40.0f);
-            ImGui::BeginGroup();
-            ImGui::TextUnformatted("Camera");
-            // Normal button height (2026-09-11, RedFalcon: "same height as the buttons on the tools
-            // page") -- 0.0f height means ImGui's own default frame height, same convention every
-            // OTHER real button in this mod uses (Spawn/Replace/Spawn Custom); kPreviewSize was only
-            // ever this button's height because it started life visually paired with the swatches
-            // above, not because anything about the layout required it.
-            ImGui::BeginDisabled(!can_click_fullbody || placement_active || MenuStatus::IsRestoring());
-            if (ImGui::Button(g_zoomMode == ZoomMode::FullBody ? "Zoom Out" : "Full Body", ImVec2(kPreviewSize, 0.0f)))
-            {
-                if (g_zoomMode == ZoomMode::FullBody)
-                {
-                    WriteZoomRequest("UNZOOM");
-                    g_zoomMode = ZoomMode::None;
-                }
-                else
-                {
-                    WriteZoomRequest("ZOOM");
-                    g_zoomMode = ZoomMode::FullBody;
-                }
-            }
-            ImGui::EndDisabled();
-            // "Face View" (2026-09-13, RedFalcon: "add another button under it that is Face View")
-            // -- plain sequential Button() call, no SameLine(), so it stacks directly under Full
-            // Body inside the same group.
-            ImGui::BeginDisabled(!can_click_face || placement_active || MenuStatus::IsRestoring());
-            if (ImGui::Button(g_zoomMode == ZoomMode::Face ? "Zoom Out" : "Face View", ImVec2(kPreviewSize, 0.0f)))
-            {
-                if (g_zoomMode == ZoomMode::Face)
-                {
-                    WriteZoomRequest("UNZOOM");
-                    g_zoomMode = ZoomMode::None;
-                }
-                else
-                {
-                    WriteZoomRequest("FACE");
-                    g_zoomMode = ZoomMode::Face;
-                }
-            }
-            ImGui::EndDisabled();
-            // Camera orbit rotate buttons (2026-09-14, RedFalcon: "under face view add <- and ->
-            // buttons to rotate on the Z axis no need for a label. Make them fit so the two of them
-            // fit the width of the button above", widened same day: "can you also make it work in
-            // full body view?") -- meaningful whenever EITHER camera mode is active (no live tripod
-            // yaw to nudge otherwise), so gated on that instead of can_click_face/can_click_fullbody.
-            // Each is half kPreviewSize wide minus half the item spacing, so the pair together span
-            // exactly kPreviewSize, matching Full Body/Face View above them. Which mode is currently
-            // active decides the payload's MODE tag (see WriteFaceViewRotateRequest's own header).
-            {
-                const bool can_rotate = (g_zoomMode != ZoomMode::None) && !placement_active && !MenuStatus::IsRestoring();
-                const char* rotate_mode = (g_zoomMode == ZoomMode::FullBody) ? "FULLBODY" : "FACE";
-                const float halfW = (kPreviewSize - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-                ImGui::BeginDisabled(!can_rotate);
-                if (ImGui::Button("<##faceview_rotate_left", ImVec2(halfW, 0.0f)))
-                {
-                    WriteFaceViewRotateRequest(rotate_mode, -kFaceViewRotateStepDegrees);
-                }
-                ImGui::SameLine();
-                if (ImGui::Button(">##faceview_rotate_right", ImVec2(halfW, 0.0f)))
-                {
-                    WriteFaceViewRotateRequest(rotate_mode, kFaceViewRotateStepDegrees);
-                }
-                ImGui::EndDisabled();
-            }
-            if (placement_active)
-            {
-                ImGui::TextDisabled("(placing...)");
-            }
-            else if (!has_target && g_zoomMode == ZoomMode::None)
-            {
-                ImGui::TextDisabled("(no target)");
-            }
-            ImGui::EndGroup();
-        }
 
         // Physique dropdown MOVED to CustomMenu.cpp's new "Body" section (2026-09-12, RedFalcon:
         // "where selected target used to be add a 'Body' section with Physique in it") -- see that

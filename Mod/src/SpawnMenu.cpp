@@ -27,6 +27,25 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
 
         MenuNode g_root;
 
+        // Public snapshot of "Custom > Poses", rebuilt in Reload() alongside g_root -- see
+        // SpawnMenu.hpp's own PoseNode comment for why this is a separate, ImGui-agnostic copy
+        // rather than exposing MenuNode/g_root directly.
+        PoseNode g_posesTree;
+
+        auto build_pose_node(const MenuNode& src) -> PoseNode
+        {
+            PoseNode out;
+            out.label = src.label;
+            out.is_leaf = src.is_leaf;
+            out.index = src.index;
+            out.children.reserve(src.children.size());
+            for (auto& c : src.children)
+            {
+                out.children.push_back(build_pose_node(*c));
+            }
+            return out;
+        }
+
         // Currently SELECTED leaf (2026-08-16 rework -- clicking used to spawn immediately; now it
         // only selects, and the "Spawn"/"Replace" buttons below act on the selection). g_selected_path
         // is the full breadcrumb ("Senkamati / Warrior / Crew Reskin / Helmet On") shown in the
@@ -200,11 +219,38 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         {
             Output::send<LogLevel::Warning>(STR("[LivingBaseSpawnMenu] SpawnMenu: spawn_menu.ini not found yet\n"));
             g_root = MenuNode{};
+            g_posesTree = PoseNode{};
             return;
         }
         std::stringstream buffer;
         buffer << f.rdbuf();
         parse_ini(buffer.str());
+
+        g_posesTree = PoseNode{};
+        for (auto& top : g_root.children)
+        {
+            if (top->label != "Custom")
+            {
+                continue;
+            }
+            for (auto& c : top->children)
+            {
+                if (c->label == "Poses")
+                {
+                    g_posesTree = build_pose_node(*c);
+                }
+            }
+        }
+    }
+
+    auto GetPosesTree() -> const PoseNode&
+    {
+        return g_posesTree;
+    }
+
+    auto ApplyPoseByIndex(int index) -> void
+    {
+        write_request("REPLACE", "CUSTOM_POSES", index);
     }
 
     auto Draw() -> void
@@ -232,6 +278,18 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             ImGui::BeginChild("##spawnmenu_tree", ImVec2(0.0f, -44.0f), true);
             for (auto& child : g_root.children)
             {
+                // "Custom" (Poses/Skin Tones/Hair/Clothes) hidden here (2026-09-16, RedFalcon:
+                // "now that this step is done, the entire Custom branch of the tools tree is no
+                // longer needed") -- the Custom tab's own dedicated widgets (Body/Hair/Clothes/
+                // Belts and Straps/Poses and Actions) now cover everything this branch used to
+                // exist for. The underlying spawn_menu.ini generation is deliberately UNTOUCHED --
+                // GetPosesTree() (used by CustomMenu.cpp's own Poses and Actions windowshade) still
+                // reads "Custom > Poses" straight out of g_root regardless of whether it's drawn
+                // here, so only the VISUAL tree entry is removed, not the data source.
+                if (child->label == "Custom")
+                {
+                    continue;
+                }
                 draw_node(*child, "");
             }
             ImGui::EndChild();

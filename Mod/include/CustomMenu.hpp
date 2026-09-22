@@ -27,4 +27,10 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
     // Draws the panel into the CURRENT ImGui window -- call from inside an existing
     // BeginTabItem("Custom")/EndTabItem() pair, same convention as SpawnMenu::Draw()/MoveMenu::Draw().
     auto Draw() -> void;
+
+    // The "Lights" section (2026-09-21, Photo tab mockup) -- 3 fixed light+spill-shield rigs.
+    // Lives here (this file already owns all its request/status-file plumbing) but is drawn from
+    // its OWN "Photo Mode" tab in StandaloneWindow.cpp, not from Draw() above -- call from inside
+    // that tab's own BeginTabItem/EndTabItem pair, same convention as Draw() itself.
+    auto DrawLightsSection() -> void;
 } // namespace RC::LivingBaseSpawnMenu::CustomMenu
