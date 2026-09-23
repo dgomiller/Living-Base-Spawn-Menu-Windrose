@@ -181,6 +181,27 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             f << verb << ":" << roster << ":" << index << "\n";
         }
 
+        // Confirm/Move buttons (2026-09-23, RedFalcon, final revision: "Under the Spawn Tree, I want
+        // the buttons 'Confirm' (0), Spawn, Move and Replace") -- these two are one-shot ACTION lines
+        // on the SAME move_request.txt queue MoveMenu.cpp's own numpad mirror already writes to
+        // (CONFIRM_PLACEMENT/GRAB_TARGET), so a click here is indistinguishable from pressing
+        // Numpad 0/Numpad * to main.lua's own drainMoveMenuQueue. Cancel/Despawn were tried here
+        // too in an earlier revision but ended up living in MoveMenu.cpp's own pane instead -- see
+        // that file's own comment for the current split. Duplicated helper rather than shared across
+        // translation units -- same "small helper, not worth a shared header" tolerance
+        // CoordsMenu.cpp's own copy of this exact pattern already established.
+        constexpr const char* MOVE_REQUEST_PATH = "ue4ss/Mods/LivingBase/move_request.txt";
+        auto queue_move_action(const char* name) -> void
+        {
+            std::ofstream f(MOVE_REQUEST_PATH, std::ios::app);
+            if (!f)
+            {
+                Output::send<LogLevel::Error>(STR("[LivingBaseSpawnMenu] SpawnMenu: failed to write move_request.txt\n"));
+                return;
+            }
+            f << "ACTION:" << name << "\n";
+        }
+
         // draw_node now only SELECTS a leaf (highlights it, records roster/index/full-path) rather
         // than spawning immediately -- the Spawn/Replace buttons in Draw() act on the selection.
         // `path_prefix`: the breadcrumb accumulated so far, purely for the "Selected: ..." readout.
@@ -271,11 +292,13 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         }
         else
         {
-            // Tree in a scrollable child region so the Spawn/Replace bar below always stays
-            // visible regardless of how deep the current category is expanded. No separate
-            // "Selected: ..." text row (dropped 2026-08-16, RedFalcon: the tree's own highlighted
-            // row already shows the selection -- a second text copy was redundant).
-            ImGui::BeginChild("##spawnmenu_tree", ImVec2(0.0f, -44.0f), true);
+            // Tree in a scrollable child region so the button bar below always stays visible
+            // regardless of how deep the current category is expanded. No separate "Selected: ..."
+            // text row (dropped 2026-08-16, RedFalcon: the tree's own highlighted row already shows
+            // the selection -- a second text copy was redundant). Bottom margin widened from -44 to
+            // -52 (2026-09-23) to fit the button row's own new height (kActionBtnH=28, up from the
+            // buttons' old ~20px default) without cramping.
+            ImGui::BeginChild("##spawnmenu_tree", ImVec2(0.0f, -52.0f), true);
             for (auto& child : g_root.children)
             {
                 // "Custom" (Poses/Skin Tones/Hair/Clothes) hidden here (2026-09-16, RedFalcon:
@@ -348,8 +371,39 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 doReplace();
             }
 
+            // 4-button row (2026-09-23, RedFalcon REVISED: "I forgot a button so we'll need to
+            // readjust again. Under the Spawn Tree, I want the buttons 'Confirm' (0), Spawn, Move
+            // and Replace. Then under the movement section, fitting the width, I want Cancel,
+            // Despawn, Undo") -- SUPERSEDES the previous 5-button layout: Cancel/Despawn moved back
+            // OUT of this row and into MoveMenu.cpp's own pane (alongside Undo), and Confirm is new
+            // here. Confirm/Move are one-shot actions on the SAME move_request.txt queue
+            // MoveMenu.cpp's numpad mirror already writes to (see queue_move_action's own header).
+            // kActionBtnH matches MoveMenu.cpp's own cellH (28.0f) exactly -- duplicated rather than
+            // shared across translation units, same tolerance as MOVE_REQUEST_PATH just above. avail
+            // is the tree child's own just-ended width (that BeginChild used width 0 = "fill the
+            // pane"), so 4 even columns here naturally span exactly the tree's own width with no
+            // extra math needed.
+            constexpr float kActionBtnH = 28.0f;
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const float btnW = (avail - ImGui::GetStyle().ItemSpacing.x * 3.0f) / 4.0f;
+
+            // "Confirm" -- same action as Numpad 0 (CONFIRM_PLACEMENT): only meaningful while a
+            // placement/relocate preview is actively following the camera, same gate as Cancel's
+            // own reasoning (in MoveMenu.cpp's pane now).
+            ImGui::BeginDisabled(!MenuStatus::IsPlacementActive());
+            if (ImGui::Button("Confirm", ImVec2(btnW, kActionBtnH)))
+            {
+                queue_move_action("CONFIRM_PLACEMENT");
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(MenuStatus::IsPlacementActive() ? "Lock the currently-previewed object in place (Numpad 0)" : "Nothing is currently being placed.");
+            }
+            ImGui::EndDisabled();
+
+            ImGui::SameLine();
             ImGui::BeginDisabled(!g_has_selection);
-            if (ImGui::Button("Spawn", ImVec2(100.0f, 0.0f)))
+            if (ImGui::Button("Spawn", ImVec2(btnW, kActionBtnH)))
             {
                 doSpawn();
             }
@@ -359,9 +413,23 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             }
             ImGui::EndDisabled();
 
+            // "Move" -- same action as Numpad * (GRAB_TARGET): start relocating whatever's
+            // currently target-locked. Needs a locked target, same reasoning as Replace below.
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!hasTarget);
+            if (ImGui::Button("Move", ImVec2(btnW, kActionBtnH)))
+            {
+                queue_move_action("GRAB_TARGET");
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(hasTarget ? "Start relocating the target-locked object (Numpad *)" : "Target-lock something first (Num +).");
+            }
+            ImGui::EndDisabled();
+
             ImGui::SameLine();
             ImGui::BeginDisabled(!g_has_selection || !hasTarget);
-            if (ImGui::Button("Replace", ImVec2(100.0f, 0.0f)))
+            if (ImGui::Button("Replace", ImVec2(btnW, kActionBtnH)))
             {
                 doReplace();
             }

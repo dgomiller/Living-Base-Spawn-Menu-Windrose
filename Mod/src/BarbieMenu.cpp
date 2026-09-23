@@ -22,6 +22,36 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         constexpr const char* REQUEST_PATH = "ue4ss/Mods/LivingBase/barbie_spawn_request.txt";
         constexpr const char* SWATCH_DIR = "ue4ss/Mods/LivingBaseSpawnMenu/swatches/";
 
+        // Mutual exclusion with the Photo Mode tab's own Tripod/Selfie/First Person camera modes
+        // (2026-09-22, RedFalcon: "make sure Full Body and Face View also tie in to being mutually
+        // exclusive so we don't run into issues") -- Full Body/Face View and Photo Mode's Tripod/
+        // Selfie both drive the SAME shared tripod actor (Spawner._photoTripodActor); the actual
+        // hand-off/teardown is done Lua-side now (Spawner.ZoomTripodOnTarget/FaceViewOnTarget tear
+        // down First Person before claiming the tripod, and Spawner.PhotoCamSetMode tears down
+        // Full Body/Face before claiming it the other way -- see spawner.lua's own comments), but
+        // g_zoomMode here is a purely local toggle (see its own declaration comment below) with no
+        // other way to learn "something ELSE just took the camera out from under me." Reads the
+        // same status file CustomMenu.cpp's Camera section already publishes
+        // (Spawner.GetPhotoCamStatus's MODE= line) -- just the one line, no need to duplicate that
+        // file's fuller POS/ROT/FOV parsing here.
+        constexpr const char* PHOTOCAM_STATUS_PATH = "ue4ss/Mods/LivingBase/custom_photocam_status.txt";
+        auto PhotoModeOwnsTripod() -> bool
+        {
+            std::ifstream f(PHOTOCAM_STATUS_PATH);
+            if (!f) { return false; }
+            std::string line;
+            while (std::getline(f, line))
+            {
+                if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+                if (line.rfind("MODE=", 0) == 0)
+                {
+                    std::string mode = line.substr(5);
+                    return mode == "TRIPOD" || mode == "SELFIE" || mode == "FIRSTPERSON";
+                }
+            }
+            return false;
+        }
+
         // One cell of the Body Type grid: which donor class to spawn, its NATIVE family (used both
         // as the spawn's own `family` arg and, on the Lua side, to look up which
         // DA_Custom_BodyTypeList_<Label>As<Origin> family-label applies when an Origin other than
@@ -30,8 +60,8 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // identically, see WINDROSE_MODDING_NOTES.md's 112/112-matrix + nude-mod-crash-fix writeup).
         struct BodyTypeSex
         {
-            const char* thumb;      // filename under swatches/BodyTypes/
-            const char* class_path; // full /Game/... class path
+            const char* thumb;      // filename under swatches/BodyTypes/, or nullptr if unavailable
+            const char* class_path; // full /Game/... class path, or nullptr if unavailable
             const char* family;     // native BodyType family tag
             const char* name;       // this CELL's own donor name (2026-09-11) -- distinct from the
                                      // row label for Gatherer/Hunter, since "Gatherer / Hunter" isn't
@@ -40,6 +70,12 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
                                      // per-spawn name sent to Lua (RedFalcon: "use the origin and
                                      // bodytype in the name, not literally the words").
         };
+        // A cell with class_path == nullptr means "this sex genuinely doesn't exist for this donor"
+        // (2026-09-22, John/Ksant -- confirmed not sex-changeable, same as GalenSkelton) -- distinct
+        // from a real cell whose PNG merely failed to load (DrawGridCell's own "(missing)" fallback,
+        // which stays clickable). An unavailable cell must NOT be selectable at all: WriteSpawnRequest
+        // would otherwise happily write a nullptr class_path straight into the request file.
+        auto CellAvailable(const BodyTypeSex& s) -> bool { return s.class_path != nullptr; }
         struct BodyTypeRow
         {
             const char* label;
@@ -47,34 +83,51 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
             BodyTypeSex female;
         };
 
-        // 7 rows, alphabetical by label (RedFalcon, 2026-09-11) -- BlackAxel/Farmer/Gatherer-Hunter/
-        // Herbalist/JasperCrowe/MortarMan/Woodman is already alphabetical order, no resort needed.
-        // Gatherer/Hunter share one row (the finalized (0,0,1)-shape pair from WINDROSE_MODDING_
-        // NOTES.md 19m -- both sexes already covered natively, no sex-swap needed for either column)
-        // -- the only row where Male and Female use two DIFFERENT donor classes rather than one
-        // class sex-swapped.
+        // 10 rows, RedFalcon's own display order (2026-09-22, superseding the old 7-row alphabetical
+        // order) -- display names only changed for Axel/Crowe/Joe/Woodsman/Mercer/John; underlying
+        // class paths/families are untouched, and the pak's own DA_Custom_BodyType(List)_* asset
+        // names still use the OLD internal labels (BlackAxel/JasperCrowe/MortarMan/Woodman/
+        // RosalindaMercer/Ksante) -- only the GUI-facing name changed, no repackaging needed for the
+        // rename itself. Gatherer/Hunter share one row (the finalized (0,0,1)-shape pair from
+        // WINDROSE_MODDING_NOTES.md 19m -- both sexes already covered natively, no sex-swap needed
+        // for either column) -- the only row (besides John) where Male and Female don't share one
+        // sex-swapped class. Miner/Mercer/John are new 2026-09-22 additions (see BARBIE_ROSTER.md's
+        // own "New source families" writeup) -- Miner reuses the existing Scum-family assets (no new
+        // content needed, confirmed working both sexes); Mercer is native Albion (both sexes
+        // confirmed); John is native "Ksante" (his own unique tag, not one of the 8 origins) and
+        // confirmed NOT sex-changeable (same as GalenSkelton) -- his female cell is genuinely
+        // unavailable (class_path=nullptr), not just a missing thumbnail.
         constexpr BodyTypeRow kBodyTypeRows[] = {
-                {"BlackAxel",
-                 {"bodytype_BlackAxelMale.png", "/Game/Gameplay/Character/AI/NPC/Employee/CookingStation/BP_NPC_Employee_CookingStation_BlackAxel.BP_NPC_Employee_CookingStation_BlackAxel_C", "Albion", "BlackAxel"},
-                 {"bodytype_BlackAxelFemale.png", "/Game/Gameplay/Character/AI/NPC/Employee/CookingStation/BP_NPC_Employee_CookingStation_BlackAxel.BP_NPC_Employee_CookingStation_BlackAxel_C", "Albion", "BlackAxel"}},
                 {"Farmer",
                  {"bodytype_FarmerMale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Farmer/BP_NPC_Handyman_Farmer.BP_NPC_Handyman_Farmer_C", "Scum", "Farmer"},
                  {"bodytype_FarmerFemale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Farmer/BP_NPC_Handyman_Farmer.BP_NPC_Handyman_Farmer_C", "Scum", "Farmer"}},
-                {"Gatherer / Hunter",
+                {"Hunter / Gatherer",
                  {"bodytype_HunterMale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Hunter/BP_NPC_Handyman_Hunter.BP_NPC_Handyman_Hunter_C", "African", "Hunter"},
                  {"bodytype_GathererFemale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Gatherer/BP_NPC_Handyman_Gatherer.BP_NPC_Handyman_Gatherer_C", "Adventurer", "Gatherer"}},
                 {"Herbalist",
                  {"bodytype_HerbalistMale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Herbalist/BP_NPC_Handyman_Herbalist.BP_NPC_Handyman_Herbalist_C", "Adventurer", "Herbalist"},
                  {"bodytype_HerbalistFemale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Herbalist/BP_NPC_Handyman_Herbalist.BP_NPC_Handyman_Herbalist_C", "Adventurer", "Herbalist"}},
-                {"JasperCrowe",
-                 {"bodytype_JasperCroweMale.png", "/Game/Gameplay/Character/AI/NPC/Employee/WeaponStation/BP_NPC_Employee_WeaponStation_JasperCrowe.BP_NPC_Employee_WeaponStation_JasperCrowe_C", "Adventurer", "JasperCrowe"},
-                 {"bodytype_JasperCroweFemale.png", "/Game/Gameplay/Character/AI/NPC/Employee/WeaponStation/BP_NPC_Employee_WeaponStation_JasperCrowe.BP_NPC_Employee_WeaponStation_JasperCrowe_C", "Adventurer", "JasperCrowe"}},
-                {"MortarMan",
-                 {"bodytype_MortarManMale.png", "/Game/Gameplay/Character/AI/NPC/MortarMan/BP_NPC_MortarMan.BP_NPC_MortarMan_C", "Native", "MortarMan"},
-                 {"bodytype_MortarManFemale.png", "/Game/Gameplay/Character/AI/NPC/MortarMan/BP_NPC_MortarMan.BP_NPC_MortarMan_C", "Native", "MortarMan"}},
-                {"Woodman",
-                 {"bodytype_WoodmanMale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Woodman/BP_NPC_Handyman_Woodman.BP_NPC_Handyman_Woodman_C", "Scum", "Woodman"},
-                 {"bodytype_WoodmanFemale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Woodman/BP_NPC_Handyman_Woodman.BP_NPC_Handyman_Woodman_C", "Scum", "Woodman"}},
+                {"Miner",
+                 {"bodytype_MinerMale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Miner/BP_NPC_Handyman_Miner.BP_NPC_Handyman_Miner_C", "Scum", "Miner"},
+                 {"bodytype_MinerFemale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Miner/BP_NPC_Handyman_Miner.BP_NPC_Handyman_Miner_C", "Scum", "Miner"}},
+                {"Woodsman",
+                 {"bodytype_WoodsmanMale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Woodman/BP_NPC_Handyman_Woodman.BP_NPC_Handyman_Woodman_C", "Scum", "Woodsman"},
+                 {"bodytype_WoodsmanFemale.png", "/Game/Gameplay/Character/AI/NPC/Handyman/Handyman_Woodman/BP_NPC_Handyman_Woodman.BP_NPC_Handyman_Woodman_C", "Scum", "Woodsman"}},
+                {"Axel",
+                 {"bodytype_AxelMale.png", "/Game/Gameplay/Character/AI/NPC/Employee/CookingStation/BP_NPC_Employee_CookingStation_BlackAxel.BP_NPC_Employee_CookingStation_BlackAxel_C", "Albion", "Axel"},
+                 {"bodytype_AxelFemale.png", "/Game/Gameplay/Character/AI/NPC/Employee/CookingStation/BP_NPC_Employee_CookingStation_BlackAxel.BP_NPC_Employee_CookingStation_BlackAxel_C", "Albion", "Axel"}},
+                {"Crowe",
+                 {"bodytype_CroweMale.png", "/Game/Gameplay/Character/AI/NPC/Employee/WeaponStation/BP_NPC_Employee_WeaponStation_JasperCrowe.BP_NPC_Employee_WeaponStation_JasperCrowe_C", "Adventurer", "Crowe"},
+                 {"bodytype_CroweFemale.png", "/Game/Gameplay/Character/AI/NPC/Employee/WeaponStation/BP_NPC_Employee_WeaponStation_JasperCrowe.BP_NPC_Employee_WeaponStation_JasperCrowe_C", "Adventurer", "Crowe"}},
+                {"Mercer",
+                 {"bodytype_MercerMale.png", "/Game/Gameplay/Character/AI/NPC/Employee/AlchemyStation/BP_NPC_Employee_AlchemyStation_RosalindaMercer.BP_NPC_Employee_AlchemyStation_RosalindaMercer_C", "Albion", "Mercer"},
+                 {"bodytype_MercerFemale.png", "/Game/Gameplay/Character/AI/NPC/Employee/AlchemyStation/BP_NPC_Employee_AlchemyStation_RosalindaMercer.BP_NPC_Employee_AlchemyStation_RosalindaMercer_C", "Albion", "Mercer"}},
+                {"Joe",
+                 {"bodytype_JoeMale.png", "/Game/Gameplay/Character/AI/NPC/MortarMan/BP_NPC_MortarMan.BP_NPC_MortarMan_C", "Native", "Joe"},
+                 {"bodytype_JoeFemale.png", "/Game/Gameplay/Character/AI/NPC/MortarMan/BP_NPC_MortarMan.BP_NPC_MortarMan_C", "Native", "Joe"}},
+                {"John",
+                 {"bodytype_JohnMale.png", "/Game/Gameplay/Character/AI/NPC/Ksant/BP_NPC_Ksant.BP_NPC_Ksant_C", "Ksante", "John"},
+                 {nullptr, nullptr, "Ksante", "John"}},
         };
         constexpr int kBodyTypeRowCount = sizeof(kBodyTypeRows) / sizeof(kBodyTypeRows[0]);
 
@@ -198,9 +251,10 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
             {
                 return;
             }
-            // Capped height + scrolling child (2026-09-11): 7 rows of 96px image buttons comfortably
-            // exceeds a reasonable popup/screen height, unlike the color picker's own short 26px-tall
-            // swatches -- CustomMenu.cpp's popup never needed this.
+            // Capped height + scrolling child (2026-09-11, now 10 rows as of 2026-09-22): rows of
+            // 96px image buttons comfortably exceed a reasonable popup/screen height, unlike the
+            // color picker's own short 26px-tall swatches -- CustomMenu.cpp's popup never needed
+            // this.
             ImGui::BeginChild("##barbie_bodytype_scroll", ImVec2(360.0f, 520.0f));
             ImGui::Columns(2, "##barbie_bodytype_cols", false);
             ImGui::TextUnformatted("Male");
@@ -213,22 +267,41 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
                 const BodyTypeRow& row = kBodyTypeRows[i];
                 ImGui::PushID(i);
 
-                const bool male_selected = g_selected_bodytype_row == i && g_selected_bodytype_is_male;
-                if (DrawGridCell("m", ThumbPath("BodyTypes", row.male.thumb), male_selected))
+                if (CellAvailable(row.male))
                 {
-                    g_selected_bodytype_row = i;
-                    g_selected_bodytype_is_male = true;
-                    ImGui::CloseCurrentPopup();
+                    const bool male_selected = g_selected_bodytype_row == i && g_selected_bodytype_is_male;
+                    if (DrawGridCell("m", ThumbPath("BodyTypes", row.male.thumb), male_selected))
+                    {
+                        g_selected_bodytype_row = i;
+                        g_selected_bodytype_is_male = true;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                else
+                {
+                    ImGui::Dummy(ImVec2(kThumbSize, kThumbSize));
                 }
                 ImGui::TextUnformatted(row.label);
                 ImGui::NextColumn();
 
-                const bool female_selected = g_selected_bodytype_row == i && !g_selected_bodytype_is_male;
-                if (DrawGridCell("f", ThumbPath("BodyTypes", row.female.thumb), female_selected))
+                if (CellAvailable(row.female))
                 {
-                    g_selected_bodytype_row = i;
-                    g_selected_bodytype_is_male = false;
-                    ImGui::CloseCurrentPopup();
+                    const bool female_selected = g_selected_bodytype_row == i && !g_selected_bodytype_is_male;
+                    if (DrawGridCell("f", ThumbPath("BodyTypes", row.female.thumb), female_selected))
+                    {
+                        g_selected_bodytype_row = i;
+                        g_selected_bodytype_is_male = false;
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                else
+                {
+                    // Genuinely unavailable (e.g. John/Ksant -- not sex-changeable), not just a
+                    // missing thumbnail -- a plain non-interactive dimmed placeholder, never
+                    // selectable, so WriteSpawnRequest can never receive a nullptr class_path.
+                    ImGui::BeginDisabled();
+                    ImGui::Button("N/A", ImVec2(kThumbSize, kThumbSize));
+                    ImGui::EndDisabled();
                 }
                 ImGui::TextUnformatted(row.label);
                 ImGui::NextColumn();
@@ -392,6 +465,14 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // active is the SAME signal Lua used, so resetting it here too keeps the button label
         // from going stale ("Zoom Out" lingering after the camera already reset itself).
         if (g_zoomMode != ZoomMode::None && !has_target)
+        {
+            g_zoomMode = ZoomMode::None;
+        }
+        // Photo Mode's Tripod/Selfie/First Person claimed the shared tripod out from under us
+        // (2026-09-22) -- see PhotoModeOwnsTripod's own header. Same label-desync problem the
+        // has_target check above already solves, just for a different "something else reset this"
+        // signal.
+        if (g_zoomMode != ZoomMode::None && PhotoModeOwnsTripod())
         {
             g_zoomMode = ZoomMode::None;
         }

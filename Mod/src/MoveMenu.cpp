@@ -395,12 +395,25 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Despawn/Undo: matches the numpad's 3 (despawn in front) / this window's own Ctrl+Z
-        // (restore last despawn -- no in-game key anymore, GUI-only) -- distinct from Delete All
-        // below, which clears EVERYTHING. Despawn requires a locked target (RedFalcon, 2026-08-16
-        // -- it only ever acts on the targeted object, same reasoning as the movement block and
-        // Replace above); Undo doesn't, since it operates on the last despawn regardless of what's
-        // currently locked.
+        // Cancel/Despawn/Undo (2026-09-23, RedFalcon REVISED: "under the movement section, fitting
+        // the width, I want Cancel, Despawn, Undo") -- SUPERSEDES the earlier "Despawn moved to
+        // SpawnMenu.cpp" version: Despawn is back here, joined by Cancel (previously only living in
+        // SpawnMenu.cpp's own row, now REMOVED from there since Confirm took its place there
+        // instead -- see SpawnMenu.cpp's own comment for the current split). "Fitting the width"
+        // reuses this Draw()'s own existing cellW (3 even columns already computed above for the
+        // D-pad, `(avail - gap*2)/3` -- exactly wide3 split into thirds), not a separate width calc.
+        // Cancel matches Numpad / (CANCEL_PLACEMENT, only meaningful mid-placement); Despawn matches
+        // Numpad 3 / F4 (needs a locked target, same reasoning as Replace); Undo needs neither, since
+        // it operates on the last despawn regardless of what's currently locked.
+        ImGui::BeginDisabled(!MenuStatus::IsPlacementActive());
+        if (ImGui::Button("Cancel", ImVec2(cellW, cellH)))
+        {
+            queueAction("CANCEL_PLACEMENT");
+        }
+        ImGui::EndDisabled();
+        HoverTooltip(MenuStatus::IsPlacementActive() ? "Cancel the active placement/relocation (Numpad /)" : "Nothing is currently being placed.");
+
+        ImGui::SameLine();
         ImGui::BeginDisabled(!hasTarget);
         if (ImGui::Button("Despawn", ImVec2(cellW, cellH)))
         {
@@ -408,8 +421,7 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         }
         ImGui::EndDisabled();
         HoverTooltip(hasTarget ? "Despawn the targeted object (Numpad 3 / F4)" : "Target-lock something first (Num +)");
-        ImGui::SameLine();
-        ImGui::Dummy(ImVec2(cellW, cellH));
+
         ImGui::SameLine();
         if (ImGui::Button("Undo", ImVec2(cellW, cellH)))
         {

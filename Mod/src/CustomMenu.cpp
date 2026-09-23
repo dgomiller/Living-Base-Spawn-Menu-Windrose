@@ -5,6 +5,7 @@
 #include <ImageLoader.hpp>
 #include <MenuStatus.hpp>
 #include <SpawnMenu.hpp>
+#include <StandaloneWindow.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -3392,6 +3393,65 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
     float g_lightShieldSize[3] = { 1.0f, 1.0f, 1.0f };
     bool g_lightShieldVisible[3] = { true, true, true };
 
+    // "Weather" / "Time" / "Freeze Time" (2026-09-22, under Light 3 on RedFalcon's own request) --
+    // thin GUI front-end over the existing lbphotoweather/lbphototime console commands (main.lua),
+    // same names/order as PHOTO_WEATHERS there (Genlandia's real preset order -- see that table's
+    // own comment if this is ever used on a different map). Weather/Time are fire-and-forget action
+    // combos, not persisted selectors: RedFalcon's own spec is "let 'Weather' be the default
+    // display, and once a weather is selected, return it back to 'Weather'" -- so their preview
+    // text is hardcoded, never bound to the last pick. Declared HERE (above DrawLightsSectionImpl,
+    // which uses all of this at the end of its own body) since C++ needs these visible before use,
+    // unlike the Lua side's closures.
+    constexpr const char* kPhotoWeatherNames[] = {
+        "Windy", "TortugaMist", "TestSunny", "TestCloudy", "Sunny", "Storm", "RainHeavy",
+        "Rainbow", "Rain", "Overcast", "Mist", "LobbySunny", "HighPressure", "Fog", "Default",
+        "Cloudy", "AshlandsFog",
+    };
+
+    constexpr const char* PHOTO_WEATHER_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_photoweather_request.txt";
+    auto WritePhotoWeatherRequest(const char* name) -> void
+    {
+        std::ofstream f(PHOTO_WEATHER_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << name << "\n";
+    }
+
+    constexpr const char* PHOTO_TIME_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_phototime_request.txt";
+    auto WritePhotoTimeRequest(int hour) -> void
+    {
+        std::ofstream f(PHOTO_TIME_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << hour << "\n";
+    }
+
+    // Freeze Time's checkbox reflects the day-cycle component's REAL tick-enabled state (published
+    // every poll tick by main.lua, read back via IsComponentTickEnabled -- not a value this file
+    // caches from its own last write) -- same lesson as the Target Highlight toggle further below:
+    // trusting a locally-cached flag instead of the live state is exactly what made that toggle read
+    // wrong after an exit/re-entry the button didn't cause.
+    bool g_photoTimeFrozen = false;
+    constexpr const char* PHOTO_FREEZETIME_STATUS_PATH = "ue4ss/Mods/LivingBase/custom_photofreezetime_status.txt";
+    auto pollPhotoFreezeTimeStatus() -> void
+    {
+        std::ifstream f(PHOTO_FREEZETIME_STATUS_PATH);
+        if (!f) { g_photoTimeFrozen = false; return; }
+        std::string line;
+        while (std::getline(f, line))
+        {
+            if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+            if (line == "FROZEN=1") { g_photoTimeFrozen = true; }
+            else if (line == "FROZEN=0") { g_photoTimeFrozen = false; }
+        }
+    }
+
+    constexpr const char* PHOTO_FREEZETIME_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_photofreezetime_request.txt";
+    auto WritePhotoFreezeTimeRequest(bool freeze) -> void
+    {
+        std::ofstream f(PHOTO_FREEZETIME_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << (freeze ? "1" : "0") << "\n";
+    }
+
     constexpr const char* LIGHTS_STATUS_PATH = "ue4ss/Mods/LivingBase/custom_lights_status.txt";
     // Continuous poll (2026-09-21) -- reads whatever main.lua's own BeltStrapPolls.publishLightsStatus
     // last wrote, same "small file, no request/response pending-timer dance" convention as
@@ -3507,22 +3567,32 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         const float avail = ImGui::GetContentRegionAvail().x;
         constexpr float kLabelColW = 150.0f;
         const float kSliderW = avail - kLabelColW;
-        const float kColW = avail / 3.0f;
 
         for (int i = 0; i < 3; ++i)
         {
             ImGui::PushID(i);
             ImGui::Text("Light %d:", i + 1);
 
-            // Row: Enable / Color / Show Spill Shield, 3 even columns (same `i * kColW` two-pass
-            // layout convention as the Belt/Sling/Strap/Frog and Hand rows above).
+            // Row: Enable / Color / Show Spill Shield (2026-09-23, RedFalcon: "squeeze the top line
+            // tighter and the spill shield text gets cut off. its end should align with the edge of
+            // the sliders" -- then, same day, "put label text to the left of everything on the top
+            // row? Right now looks like it says 'Enable Color'" -- Checkbox("Enable", ...)'s own
+            // trailing label sat immediately against "Color"'s leading label with barely any visual
+            // gap, reading as one run-on phrase). Every label now sits to the LEFT of its own
+            // control (matching "Color"'s own convention, which never had this problem) via plain
+            // ##-only checkboxes -- Enable/Color still sit close together at their natural width;
+            // "Show Spill Shield" is still right-anchored so its checkbox's right edge lands exactly
+            // at `avail`, the same right edge kSliderW's sliders use, regardless of label width.
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Enable");
+            ImGui::SameLine();
             bool enabled = g_lightActive[i];
-            if (ImGui::Checkbox("Enable", &enabled))
+            if (ImGui::Checkbox("##enable", &enabled))
             {
                 WriteLightEnableRequest(i + 1, enabled);
             }
 
-            ImGui::SameLine(kColW);
+            ImGui::SameLine();
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted("Color");
             ImGui::SameLine();
@@ -3539,10 +3609,16 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             }
             ImGui::EndDisabled();
 
-            ImGui::SameLine(2.0f * kColW);
+            constexpr const char* kShieldLabel = "Show Spill Shield";
+            const float shieldW = ImGui::CalcTextSize(kShieldLabel).x + ImGui::GetStyle().ItemInnerSpacing.x
+                + ImGui::GetFrameHeight();
+            ImGui::SameLine(avail - shieldW);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(kShieldLabel);
+            ImGui::SameLine();
             bool shieldVis = g_lightShieldVisible[i];
             ImGui::BeginDisabled(!g_lightActive[i]);
-            if (ImGui::Checkbox("Show Spill Shield", &shieldVis))
+            if (ImGui::Checkbox("##shieldvis", &shieldVis))
             {
                 WriteLightShieldVisibleRequest(i + 1, shieldVis);
             }
@@ -3595,6 +3671,569 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             if (i < 2) { ImGui::Separator(); }
             ImGui::PopID();
         }
+
+        // Weather / Time / Freeze Time row (2026-09-22, RedFalcon: "under light 3, can we have a
+        // separator like the others and two drop downs and a checkbox?").
+        ImGui::Separator();
+        pollPhotoFreezeTimeStatus();
+
+        const float rowAvail = ImGui::GetContentRegionAvail().x;
+        const float freezeW = ImGui::CalcTextSize("Freeze Time").x + ImGui::GetStyle().ItemInnerSpacing.x
+            + ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x * 2.0f;
+        const float comboW = (rowAvail - freezeW - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
+
+        ImGui::SetNextItemWidth(comboW);
+        if (ImGui::BeginCombo("##photoweather", "Weather"))
+        {
+            for (const char* name : kPhotoWeatherNames)
+            {
+                if (ImGui::Selectable(name))
+                {
+                    WritePhotoWeatherRequest(name);
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(comboW);
+        if (ImGui::BeginCombo("##phototime", "Time"))
+        {
+            for (int h = 0; h < 24; ++h)
+            {
+                char label[8];
+                std::snprintf(label, sizeof(label), "%02d", h);
+                if (ImGui::Selectable(label))
+                {
+                    WritePhotoTimeRequest(h);
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        // Freeze Time is a ONE-WAY uncheck (2026-09-22, RedFalcon: "they should not be locked to
+        // start with, except freeze time. i want it a one way uncheck once time has changed and
+        // time has stopped") -- Weather/Time stay freely clickable at all times, but Freeze Time
+        // itself starts (and stays) DISABLED/unclickable while time is running normally: there's
+        // nothing to unfreeze yet, and the box can't be checked directly (freezing only happens as
+        // a side effect of a Time selection converging and settling -- see lbphototime's own "ARRIVED
+        // ... frozen exactly" step above). Once that happens, g_photoTimeFrozen goes true, the box
+        // becomes enabled showing checked, and the ONLY interaction possible from there is
+        // unchecking it (which resumes the normal running cycle) -- it can never go disabled-false
+        // straight to checked-true by a click, only by time actually stopping on its own.
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Freeze Time");
+        ImGui::SameLine();
+        bool freeze = g_photoTimeFrozen;
+        ImGui::BeginDisabled(!g_photoTimeFrozen);
+        if (ImGui::Checkbox("##freezetime", &freeze))
+        {
+            WritePhotoFreezeTimeRequest(false);
+        }
+        ImGui::EndDisabled();
+    }
+
+    // "Camera" section (2026-09-22, Photo Mode tab's second half -- Lights shipped 2026-09-21, this
+    // is "the next piece for this same tab" per that section's own closing note). 3-way mode switch
+    // (Tripod/Selfie/First Person) built on the pre-existing lbphototripod/lbfirstperson Lua
+    // plumbing from 2026-09-08. REWRITTEN same day after re-reading RedFalcon's original mockup
+    // turned up real misses in the first pass: Tripod now snapshots the player's true first-person
+    // eye pose (not the old fixed-distance placement), Selfie continuously tracks the player's face
+    // every tick instead of a one-time placement, and the movement pad now works for ALL THREE modes
+    // as an offset relative to each mode's own live base pose (Spawner._photoCamApplyPose/
+    // PhotoCamAdjustOffset, spawner.lua) -- First Person gets positional-offset-only (RedFalcon:
+    // rotation stays on the mouse there). Coords stays Tripod-only per the original mockup, and is
+    // now a real edit popup (see DrawCameraCoordsPopup below), not a passive readout.
+    enum class PhotoCamMode { Off, Tripod, Selfie, FirstPerson };
+    PhotoCamMode g_photoCamMode = PhotoCamMode::Off;
+    bool g_photoCamHasPose = false;
+    float g_photoCamPos[3] = { 0.0f, 0.0f, 0.0f };
+    float g_photoCamRot[3] = { 0.0f, 0.0f, 0.0f }; // Pitch, Yaw, Roll
+    float g_photoCamFov = 70.0f;
+
+    constexpr const char* PHOTOCAM_STATUS_PATH = "ue4ss/Mods/LivingBase/custom_photocam_status.txt";
+    // Same "small file, no request/response pending-timer dance" convention as pollLightsStatus.
+    auto pollPhotoCamStatus() -> void
+    {
+        std::ifstream f(PHOTOCAM_STATUS_PATH);
+        if (!f)
+        {
+            g_photoCamMode = PhotoCamMode::Off;
+            g_photoCamHasPose = false;
+            return;
+        }
+        g_photoCamMode = PhotoCamMode::Off;
+        g_photoCamHasPose = false;
+        std::string line;
+        while (std::getline(f, line))
+        {
+            if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+            auto eq = line.find('=');
+            if (eq == std::string::npos) { continue; }
+            std::string key = line.substr(0, eq);
+            std::string value = line.substr(eq + 1);
+            if (key == "MODE")
+            {
+                if (value == "TRIPOD") { g_photoCamMode = PhotoCamMode::Tripod; }
+                else if (value == "SELFIE") { g_photoCamMode = PhotoCamMode::Selfie; }
+                else if (value == "FIRSTPERSON") { g_photoCamMode = PhotoCamMode::FirstPerson; }
+                else { g_photoCamMode = PhotoCamMode::Off; }
+            }
+            else if (key == "POS")
+            {
+                std::istringstream ps(value);
+                std::string x, y, z;
+                if (std::getline(ps, x, ',') && std::getline(ps, y, ',') && std::getline(ps, z))
+                {
+                    g_photoCamPos[0] = std::strtof(x.c_str(), nullptr);
+                    g_photoCamPos[1] = std::strtof(y.c_str(), nullptr);
+                    g_photoCamPos[2] = std::strtof(z.c_str(), nullptr);
+                    g_photoCamHasPose = true;
+                }
+            }
+            else if (key == "ROT")
+            {
+                std::istringstream rs(value);
+                std::string p, yw, r;
+                if (std::getline(rs, p, ',') && std::getline(rs, yw, ',') && std::getline(rs, r))
+                {
+                    g_photoCamRot[0] = std::strtof(p.c_str(), nullptr);
+                    g_photoCamRot[1] = std::strtof(yw.c_str(), nullptr);
+                    g_photoCamRot[2] = std::strtof(r.c_str(), nullptr);
+                }
+            }
+            else if (key == "FOV") { g_photoCamFov = std::strtof(value.c_str(), nullptr); }
+        }
+    }
+
+    constexpr const char* PHOTOCAM_MODE_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_photocam_mode_request.txt";
+    auto WritePhotoCamModeRequest(const char* mode) -> void
+    {
+        std::ofstream f(PHOTOCAM_MODE_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << mode << "\n";
+    }
+
+    // APPENDED, not overwritten -- see Spawner side's BeltStrapPolls.photoCamMove for why (a held
+    // repeat-button fires many times between polls, same reasoning as move_request.txt).
+    constexpr const char* PHOTOCAM_MOVE_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_photocam_move_request.txt";
+    auto QueuePhotoCamMove(const char* direction, float amount) -> void
+    {
+        std::ofstream f(PHOTOCAM_MOVE_REQUEST_PATH, std::ios::app);
+        if (!f) { return; }
+        f << "MOVE:" << direction << ":" << amount << "\n";
+    }
+    auto QueuePhotoCamRotate(const char* axis, float amount) -> void
+    {
+        std::ofstream f(PHOTOCAM_MOVE_REQUEST_PATH, std::ios::app);
+        if (!f) { return; }
+        f << "ROTATE:" << axis << ":" << amount << "\n";
+    }
+
+    constexpr const char* PHOTOCAM_FOV_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_photocam_fov_request.txt";
+    auto WritePhotoCamFovRequest(float value) -> void
+    {
+        std::ofstream f(PHOTOCAM_FOV_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << value << "\n";
+    }
+
+    // "Toggle Target Highlight" (2026-09-23, RedFalcon: "a button... click it swaps between showing
+    // and hiding the highlights used when targeting something for a cleaner picture") -- its own
+    // small always-on status file (main.lua's BeltStrapPolls.publishHighlightStatus), separate from
+    // custom_photocam_status.txt since this toggle is useful whether or not a camera mode is active
+    // at all (that file gets deleted entirely while mode=="OFF").
+    bool g_targetHighlightSuppressed = false;
+    constexpr const char* HIGHLIGHT_STATUS_PATH = "ue4ss/Mods/LivingBase/custom_highlight_status.txt";
+    auto pollHighlightStatus() -> void
+    {
+        std::ifstream f(HIGHLIGHT_STATUS_PATH);
+        if (!f) { g_targetHighlightSuppressed = false; return; }
+        std::string line;
+        while (std::getline(f, line))
+        {
+            if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+            if (line == "SUPPRESSED=1") { g_targetHighlightSuppressed = true; }
+            else if (line == "SUPPRESSED=0") { g_targetHighlightSuppressed = false; }
+        }
+    }
+
+    constexpr const char* HIGHLIGHT_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_highlight_request.txt";
+    auto WriteHighlightRequest(bool suppressed) -> void
+    {
+        std::ofstream f(HIGHLIGHT_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << (suppressed ? "1" : "0") << "\n";
+    }
+
+    // Coords popup (2026-09-22, RedFalcon: "coords should also act the same as the coords in spawn
+    // mode... a button you click on that brings up the ability to set them manually") -- same
+    // Preview/Apply/Reset/Cancel shape as CoordsMenu.cpp's own "Edit Coordinates" window, just
+    // scoped to the Tripod camera instead of a locked target: no target-identity tracking needed
+    // (it's always "the" tripod), and the live pose to seed/compare against comes from
+    // g_photoCamPos/g_photoCamRot (this file's own pollPhotoCamStatus) instead of MenuStatus.
+    constexpr const char* PHOTOCAM_COORDS_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_photocam_coords_request.txt";
+    auto WritePhotoCamCoordsRequest(float x, float y, float z, float pitch, float yaw, float roll) -> void
+    {
+        std::ofstream f(PHOTOCAM_COORDS_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << x << "," << y << "," << z << ":" << pitch << "," << yaw << "," << roll << "\n";
+    }
+
+    bool g_photoCoordsOpen = false;
+    float g_photoCoordsOpenPos[3]{}, g_photoCoordsOpenRot[3]{}; // Pitch, Yaw, Roll -- snapshot at open
+    float g_photoCoordsFieldPos[3]{}, g_photoCoordsFieldRot[3]{};
+
+    auto OpenPhotoCamCoords() -> void
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            g_photoCoordsOpenPos[i] = g_photoCamPos[i];
+            g_photoCoordsFieldPos[i] = g_photoCamPos[i];
+            g_photoCoordsOpenRot[i] = g_photoCamRot[i];
+            g_photoCoordsFieldRot[i] = g_photoCamRot[i];
+        }
+        g_photoCoordsOpen = true;
+    }
+
+    auto SendPhotoCamCoords(const float pos[3], const float rot[3]) -> void
+    {
+        // Rotation X/Y/Z on screen = Roll/Pitch/Yaw, matching CoordsMenu.cpp's own convention --
+        // g_photoCamRot is stored Pitch/Yaw/Roll (index 0/1/2, matching the status file's own ROT=
+        // field order), so the popup fields below index it the same way and this just forwards
+        // straight through without reordering.
+        WritePhotoCamCoordsRequest(pos[0], pos[1], pos[2], rot[0], rot[1], rot[2]);
+    }
+
+    auto DrawPhotoCamCoordsPopupImpl() -> void
+    {
+        if (!g_photoCoordsOpen) { return; }
+        // Tripod exited out from under this popup (mode switch, target-unrelated auto-reset, etc.)
+        // -- close without sending a stray revert-write, since there may be no tripod left to move.
+        if (g_photoCamMode != PhotoCamMode::Tripod)
+        {
+            g_photoCoordsOpen = false;
+            return;
+        }
+        bool stayOpen = true;
+        ImGui::SetNextWindowSize(ImVec2(280.0f, 0.0f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Edit Camera Coordinates", &stayOpen, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextDisabled("Tripod Camera");
+            ImGui::Separator();
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("X", &g_photoCoordsFieldPos[0]);
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("Y", &g_photoCoordsFieldPos[1]);
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("Z", &g_photoCoordsFieldPos[2]);
+            ImGui::Separator();
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("Rotation X (Pitch)", &g_photoCoordsFieldRot[0]);
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("Rotation Y (Yaw)", &g_photoCoordsFieldRot[1]);
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::InputFloat("Rotation Z (Roll)", &g_photoCoordsFieldRot[2]);
+            ImGui::Separator();
+
+            if (ImGui::Button("Reset", ImVec2(60.0f, 0.0f)))
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    g_photoCoordsFieldPos[i] = g_photoCoordsOpenPos[i];
+                    g_photoCoordsFieldRot[i] = g_photoCoordsOpenRot[i];
+                }
+                SendPhotoCamCoords(g_photoCoordsOpenPos, g_photoCoordsOpenRot);
+            }
+            if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Move the camera back to where it was when this window opened, and reset these fields to match. Stays open."); }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(60.0f, 0.0f)))
+            {
+                SendPhotoCamCoords(g_photoCoordsOpenPos, g_photoCoordsOpenRot);
+                g_photoCoordsOpen = false;
+            }
+            if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Move the camera back to where it was when this window opened, then close."); }
+            ImGui::SameLine();
+            if (ImGui::Button("Preview", ImVec2(60.0f, 0.0f)))
+            {
+                SendPhotoCamCoords(g_photoCoordsFieldPos, g_photoCoordsFieldRot);
+            }
+            if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Move the camera to the typed values now, without closing."); }
+            ImGui::SameLine();
+            if (ImGui::Button("Apply", ImVec2(60.0f, 0.0f)))
+            {
+                SendPhotoCamCoords(g_photoCoordsFieldPos, g_photoCoordsFieldRot);
+                g_photoCoordsOpen = false;
+            }
+            if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Move the camera to the typed values and close -- final."); }
+        }
+        ImGui::End();
+
+        if (!stayOpen && g_photoCoordsOpen)
+        {
+            SendPhotoCamCoords(g_photoCoordsOpenPos, g_photoCoordsOpenRot);
+            g_photoCoordsOpen = false;
+        }
+    }
+
+    // Precision: purely a LOCAL multiplier on the base move/rotate step sent per click/repeat-tick
+    // -- unlike MoveMenu.cpp's own Precision slider, Lua doesn't need to know this at all, since
+    // Spawner.MoveTripodCameraRelative/RotateTripodCamera already take an exact amount rather than
+    // batching deltas from multiple sources the way EditNearestInFront does. Own 6-level scheme
+    // (not shared with MoveMenu's g_precision_idx/PRECISION_SCALES) since the numbers mean something
+    // different here (a direct step multiplier, not normalized against a 0.25 Lua-side baseline).
+    constexpr const char* CAM_PRECISION_LABELS[6] = { "1/8", "1/4", "1/2", "1x (normal)", "2x", "4x" };
+    constexpr float CAM_PRECISION_SCALES[6] = { 0.125f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f };
+    int g_camPrecisionIdx = 3;
+
+    constexpr float kCamMoveStepUU = 20.0f;
+    constexpr float kCamRotateStepDeg = 3.0f;
+
+    auto DrawCameraSectionImpl() -> void
+    {
+        pollPhotoCamStatus();
+        pollHighlightStatus();
+
+        const bool placementActive = MenuStatus::IsPlacementActive();
+        // hasTripodOrSelfie gates Rotate/FOV/Coords (things only the shared CameraActor supports);
+        // hasAnyCam gates the move pad/Reset -- First Person gets those too now (positional-offset
+        // Reset + move, see spawner.lua's own PhotoCamSetMode/MoveFirstPersonRelative).
+        const bool hasTripodOrSelfie = (g_photoCamMode == PhotoCamMode::Tripod) || (g_photoCamMode == PhotoCamMode::Selfie);
+        const bool hasAnyCam = hasTripodOrSelfie || (g_photoCamMode == PhotoCamMode::FirstPerson);
+        const float avail = ImGui::GetContentRegionAvail().x;
+        const float thirdW = (avail - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
+        // Taller buttons throughout this section (2026-09-23, RedFalcon: "the camera section be the
+        // same height as the light section? The buttons are kinda short and cramped and theres room
+        // to expand it some") -- Lights' own per-slot label/slider rows naturally run close to the
+        // tab's full height; Camera's button-based content was noticeably shorter at ImGui's default
+        // (~0) button height, leaving it visibly squatter next to Lights even though both columns
+        // get the SAME allocated child height. A flat taller button height stretches Camera's real
+        // content to use that same room instead of leaving it blank underneath.
+        constexpr float kCamBtnH = 31.0f; // 2026-09-23, RedFalcon: 32 was "too tall now" -- caused a scrollbar
+
+        // "Camera" heading (2026-09-23, RedFalcon's mockup) -- this column has no tab label of its
+        // own now that it's the LEFT half of the Photo Mode tab (Lights, the right half, keeps its
+        // own per-slot "Light N:" headings), so a plain section heading here is what tells the two
+        // columns apart at a glance.
+        ImGui::TextUnformatted("Camera");
+        ImGui::Spacing();
+
+        // Mode buttons: switching directly between the three is always allowed (mirrors
+        // BarbieMenu::DrawCameraControls' Full Body/Face View "switching directly over" convention)
+        // -- clicking the CURRENTLY active one is what turns it off. Placement/restore both disable
+        // the whole row, matching every other camera control in this file.
+        ImGui::BeginDisabled(placementActive || MenuStatus::IsRestoring());
+        if (ImGui::Button(g_photoCamMode == PhotoCamMode::Tripod ? "Exit##tripod" : "Tripod", ImVec2(thirdW, kCamBtnH)))
+        {
+            WritePhotoCamModeRequest(g_photoCamMode == PhotoCamMode::Tripod ? "OFF" : "TRIPOD");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(g_photoCamMode == PhotoCamMode::Selfie ? "Exit##selfie" : "Selfie", ImVec2(thirdW, kCamBtnH)))
+        {
+            WritePhotoCamModeRequest(g_photoCamMode == PhotoCamMode::Selfie ? "OFF" : "SELFIE");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(g_photoCamMode == PhotoCamMode::FirstPerson ? "Exit##firstperson" : "First Person", ImVec2(thirdW, kCamBtnH)))
+        {
+            const bool turningOn = g_photoCamMode != PhotoCamMode::FirstPerson;
+            WritePhotoCamModeRequest(turningOn ? "FIRSTPERSON" : "OFF");
+            // 2026-09-23, RedFalcon: "first person mode was originally designed for regular view,
+            // so it doesnt compensate for the camera change when the menu is open" -- First Person
+            // is the ONE camera mode that genuinely needs real mouse-look to be worth anything
+            // (Tripod/Selfie/Full Body/Face View are all positioned via button clicks, no mouse
+            // input needed), but this companion window steals OS foreground focus the moment it's
+            // opened (see StandaloneWindow.cpp's own g_previous_foreground_window comment) -- with
+            // this window still focused, mouse movement never reaches the game at all, so turning
+            // First Person on left the player unable to look around until they manually clicked back
+            // into the game. Same "hand focus back to the game" convention Spawn/Replace already use
+            // (SpawnMenu.cpp/BarbieMenu.cpp) -- only on the ON transition; turning it back OFF
+            // doesn't need to steal focus back to this window.
+            if (turningOn)
+            {
+                StandaloneWindow::ReturnFocusToGame();
+            }
+        }
+        ImGui::EndDisabled();
+
+        // Reset (2026-09-22, RedFalcon: "sets the camera to what would be the default position, used
+        // to fix it after moving it around with the move keys" -- confirmed as a FRESH snapshot from
+        // the player's current position, not the original activation spot). ONE PER MODE BUTTON
+        // (2026-09-23, matching RedFalcon's own mockup: "Below each view button is a reset button")
+        // -- each is only ever meaningful for its OWN mode (there's only one active mode at a time),
+        // so only the Reset button directly under whichever mode is CURRENTLY active is enabled; the
+        // other two stay greyed rather than silently doing nothing if clicked.
+        const bool restoreOrPlacementBlocked = placementActive || MenuStatus::IsRestoring();
+        ImGui::BeginDisabled(g_photoCamMode != PhotoCamMode::Tripod || restoreOrPlacementBlocked);
+        if (ImGui::Button("Reset##tripod", ImVec2(thirdW, kCamBtnH))) { WritePhotoCamModeRequest("RESET"); }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(g_photoCamMode != PhotoCamMode::Selfie || restoreOrPlacementBlocked);
+        if (ImGui::Button("Reset##selfie", ImVec2(thirdW, kCamBtnH))) { WritePhotoCamModeRequest("RESET"); }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(g_photoCamMode != PhotoCamMode::FirstPerson || restoreOrPlacementBlocked);
+        if (ImGui::Button("Reset##firstperson", ImVec2(thirdW, kCamBtnH))) { WritePhotoCamModeRequest("RESET"); }
+        ImGui::EndDisabled();
+
+        // "Target Highlight" (2026-09-23, RedFalcon: "Underneath the resets i'd like a button that
+        // says 'Toggle Target Highlight'..."; then, same day: gate it to the 3 camera views; then,
+        // same day again: "reverse it so enabled is brighter and disabled is dimmed. then we can
+        // just say Target Highlight on the button") -- label simplified to the plain state name
+        // (no longer "Toggle ..."), and the lit/dim styling INVERTED from the first version -- lit
+        // (CheckMark green) now means highlights are ON/showing, dim (default button color) means
+        // they're OFF/hidden, matching how a normal "is this feature active" indicator reads (lit =
+        // active), the opposite of the original "lit = suppressed" styling. Gated on hasAnyCam
+        // (Tripod/Selfie/FirstPerson) -- Spawner.IsHoverHighlightEffectivelySuppressed() (spawner.lua)
+        // enforces the SAME rule server-side (highlights always show outside those 3 modes,
+        // regardless of the persisted flag's last value), so this is UI-level reinforcement, not the
+        // only place it's enforced.
+        ImGui::BeginDisabled(!hasAnyCam || MenuStatus::IsRestoring());
+        if (!g_targetHighlightSuppressed)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_CheckMark]);
+        }
+        if (ImGui::Button("Target Highlight", ImVec2(avail, kCamBtnH)))
+        {
+            WriteHighlightRequest(!g_targetHighlightSuppressed);
+        }
+        if (!g_targetHighlightSuppressed)
+        {
+            ImGui::PopStyleColor();
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("%s", g_targetHighlightSuppressed
+                ? "Target highlights are currently HIDDEN -- click to show them again."
+                : "Target highlights are currently shown -- click to hide them for a cleaner photo.");
+        }
+        ImGui::EndDisabled();
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // Movement pad -- relative to whatever each mode's own LIVE base pose currently is (a
+        // static snapshot for Tripod, continuously re-tracked for Selfie -- see
+        // Spawner._photoCamApplyPose's header), not raw world axes. Available in all 3 modes now;
+        // Rotate is Tripod/Selfie only -- First Person's rotation stays on the mouse (RedFalcon:
+        // "positional offset only... rotation already belongs entirely to the mouse"). Precision
+        // scales the base step client-side before it's ever queued.
+        //
+        // Layout REWORKED 2026-09-23 (RedFalcon, from a mockup): a true D-pad cross for Forward/
+        // Left/Right/Backward -- SAME "Dummy(cellW) + SameLine + button" recipe MoveMenu.cpp's own
+        // Slide cross uses (see that file's Draw(), "Slide: a true D-pad cross") -- with Up/Down/
+        // Coords as their own row directly underneath, matching that same Tools tab convention
+        // exactly ("We had forward left right and backward in a cross and up down and coords
+        // underneath, like on the tools tab"). Coords keeps its own narrower TRIPOD-only gate
+        // layered on top of this row's broader hasAnyCam one, same two-gate shape the old standalone
+        // Coords button used.
+        const float moveStep = kCamMoveStepUU * CAM_PRECISION_SCALES[g_camPrecisionIdx];
+        const float rotateStep = kCamRotateStepDeg * CAM_PRECISION_SCALES[g_camPrecisionIdx];
+        const float padW = (avail - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
+        ImGui::BeginDisabled(!hasAnyCam || placementActive || MenuStatus::IsRestoring());
+        {
+            ImGui::PushButtonRepeat(true);
+            ImGui::Dummy(ImVec2(padW, kCamBtnH));
+            ImGui::SameLine();
+            if (ImGui::Button("Forward", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("forward", moveStep); }
+
+            if (ImGui::Button("Left", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("left", moveStep); }
+            ImGui::SameLine();
+            ImGui::Dummy(ImVec2(padW, kCamBtnH));
+            ImGui::SameLine();
+            if (ImGui::Button("Right", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("right", moveStep); }
+
+            ImGui::Dummy(ImVec2(padW, kCamBtnH));
+            ImGui::SameLine();
+            if (ImGui::Button("Backward", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("back", moveStep); }
+            ImGui::PopButtonRepeat();
+        }
+        ImGui::EndDisabled();
+
+        ImGui::Spacing();
+
+        ImGui::BeginDisabled(!hasAnyCam || placementActive || MenuStatus::IsRestoring());
+        ImGui::PushButtonRepeat(true);
+        if (ImGui::Button("Up", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("up", moveStep); }
+        ImGui::SameLine();
+        if (ImGui::Button("Down", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("down", moveStep); }
+        ImGui::PopButtonRepeat();
+        ImGui::SameLine();
+        // Coords (2026-09-22, RedFalcon: "coords should also act the same as the coords in spawn
+        // mode... a button you click on that brings up the ability to set them manually") -- TRIPOD
+        // ONLY per the original mockup (Selfie's base re-derives itself every tick regardless of
+        // what an absolute set would try to pin it to). Its own narrower gate layers on top of the
+        // Up/Down row's broader hasAnyCam one -- BeginDisabled stacks, so First Person/Selfie leave
+        // Up/Down clickable while Coords alone stays greyed out.
+        ImGui::BeginDisabled(g_photoCamMode != PhotoCamMode::Tripod);
+        if (ImGui::Button("Coords", ImVec2(padW, kCamBtnH)))
+        {
+            OpenPhotoCamCoords();
+        }
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // Full 3-axis Rotate (2026-09-23, RedFalcon: "I'd like the rotation X Y and Z like on the
+        // tools screen. Sometimes people like to take photos a little crooked so we should be able
+        // to rotate in all 3 directions") -- SAME "<-" / axis-letter / "->" per-axis row shape as
+        // MoveMenu.cpp's own Rotate section, X/Y/Z = Roll/Pitch/Yaw (Unreal's own FRotator
+        // convention, matching that file's axisRow exactly). Roll is genuinely new here (spawner.lua
+        // previously only tracked pitch/yaw offset -- see Spawner._photoCamOffsets' own header).
+        ImGui::BeginDisabled(!hasTripodOrSelfie || placementActive || MenuStatus::IsRestoring());
+        {
+            ImGui::TextUnformatted("Rotate");
+            ImGui::PushButtonRepeat(true);
+            auto axisRow = [&](const char* label, const char* axisKey)
+            {
+                if (ImGui::Button(("<-##" + std::string(axisKey) + "_l").c_str(), ImVec2(padW, kCamBtnH)))
+                {
+                    QueuePhotoCamRotate(axisKey, -rotateStep);
+                }
+                ImGui::SameLine();
+                ImGui::BeginDisabled();
+                ImGui::Button(label, ImVec2(padW, kCamBtnH));
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                if (ImGui::Button(("->##" + std::string(axisKey) + "_r").c_str(), ImVec2(padW, kCamBtnH)))
+                {
+                    QueuePhotoCamRotate(axisKey, rotateStep);
+                }
+            };
+            axisRow("X", "roll");
+            axisRow("Y", "pitch");
+            axisRow("Z", "yaw");
+            ImGui::PopButtonRepeat();
+        }
+        ImGui::EndDisabled();
+        if (!hasTripodOrSelfie && hasAnyCam)
+        {
+            ImGui::TextDisabled("(First Person: rotation is mouse-only)");
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // FOV moved ABOVE Precision (2026-09-23, RedFalcon's mockup) -- only meaningful on the
+        // tripod's own CameraActor (Spawner.SetTripodFOV), so gated to Tripod/Selfie same as Rotate.
+        ImGui::BeginDisabled(!hasTripodOrSelfie || placementActive || MenuStatus::IsRestoring());
+        ImGui::TextUnformatted("FOV");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(avail - ImGui::CalcTextSize("FOV").x - ImGui::GetStyle().ItemSpacing.x);
+        float fov = g_photoCamFov;
+        if (ImGui::SliderFloat("##camfov", &fov, 25.0f, 200.0f, "%.0f"))
+        {
+            WritePhotoCamFovRequest(fov);
+        }
+        ImGui::EndDisabled();
+
+        ImGui::TextUnformatted("Precision");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(avail - ImGui::CalcTextSize("Precision").x - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::SliderInt("##camprecision", &g_camPrecisionIdx, 0, 5, CAM_PRECISION_LABELS[g_camPrecisionIdx]);
     }
 
     auto DrawTargetHeader() -> void
@@ -3773,6 +4412,23 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         ImGui::BeginDisabled(MenuStatus::IsRestoring());
         DrawLightsSectionImpl();
         ImGui::EndDisabled();
+    }
+
+    // Same externally-linked forwarder pattern as DrawLightsSection just above, for the Camera
+    // section (2026-09-22) -- DrawCameraSectionImpl already handles its own per-control
+    // BeginDisabled/EndDisabled scoping (placement/restoring gates differ per row), so this wrapper
+    // doesn't wrap the whole thing in one, unlike DrawLightsSection.
+    auto DrawCameraSection() -> void
+    {
+        DrawCameraSectionImpl();
+    }
+
+    // The Coords popup is a secondary window (own Begin()/End(), no-op when closed) meant to be
+    // called unconditionally every frame regardless of which tab is active -- same convention as
+    // CoordsMenu::Draw() (StandaloneWindow.cpp calls both right after the main tab bar's End()).
+    auto DrawCameraCoordsPopup() -> void
+    {
+        DrawPhotoCamCoordsPopupImpl();
     }
 
     auto Draw() -> void

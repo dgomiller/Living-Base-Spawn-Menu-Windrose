@@ -33,4 +33,14 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
     // its OWN "Photo Mode" tab in StandaloneWindow.cpp, not from Draw() above -- call from inside
     // that tab's own BeginTabItem/EndTabItem pair, same convention as Draw() itself.
     auto DrawLightsSection() -> void;
+
+    // The "Camera" section (2026-09-22) -- Tripod/Selfie/First Person mode switch, a
+    // direction-relative movement pad, Precision, FOV, and a Coords button (Tripod only). Same
+    // "Photo Mode" tab as DrawLightsSection above, drawn right alongside it.
+    auto DrawCameraSection() -> void;
+
+    // The Camera section's "Coords" popup -- call unconditionally every frame (same convention as
+    // CoordsMenu::Draw()), NOT from inside the Photo Mode tab body, so it stays open across tab
+    // switches.
+    auto DrawCameraCoordsPopup() -> void;
 } // namespace RC::LivingBaseSpawnMenu::CustomMenu

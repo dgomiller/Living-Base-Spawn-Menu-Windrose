@@ -148,8 +148,13 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
             // re-derived estimate from the move panel's own content stack. Bumped to 780x590 when
             // Instructions/History were folded in as tabs alongside Tools (2026-08-16 pivot away
             // from a separate Help window, see HelpMenu.hpp) -- the extra ~30px accounts for the
-            // tab bar itself. Still just a starting size, the native window's own resize border
-            // works normally from here if this needs further tuning.
+            // tab bar itself. Bumped again to 780x620 (2026-09-23, RedFalcon: "once the window
+            // shade button was added, it pushed everything down... part half of the despawn and
+            // undo buttons are cut off") -- the Shade/DLSS-indicator row added 2026-09-21 (see its
+            // own comment just below) ate into the same fixed client height without this ever being
+            // grown to compensate, clipping the Tools tab's bottom row. Still just a starting size,
+            // the native window's own resize border works normally from here if this needs further
+            // tuning.
             HWND hwnd = CreateWindowExW(WS_EX_TOPMOST,
                                          wc.lpszClassName,
                                          WINDOW_TITLE_W,
@@ -157,7 +162,7 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                                          100,
                                          100,
                                          780,
-                                         590,
+                                         620,
                                          nullptr,
                                          nullptr,
                                          wc.hInstance,
@@ -410,7 +415,7 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // even while shaded -- just enough room for this SAME button to stay visible/
                 // clickable, since a fully zero-height client area would leave no way to un-shade.
                 static bool g_windowShaded = false;
-                static int g_savedWindowHeight = 590; // CreateWindowExW's own initial height; overwritten the first time this actually runs
+                static int g_savedWindowHeight = 620; // CreateWindowExW's own initial height; overwritten the first time this actually runs
                 if (ImGui::SmallButton(g_windowShaded ? "\xE2\x96\xBC Expand" : "\xE2\x96\xB2 Shade"))
                 {
                     RECT rect{};
@@ -457,7 +462,11 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 if (!g_windowShaded) {
                 if (ImGui::BeginTabBar("##spawnmenu_tabs"))
                 {
-                    if (ImGui::BeginTabItem("Tools", nullptr, toolsTabFlags))
+                    // Renamed from "Tools" (2026-09-23, RedFalcon's own mockup). This root window
+                    // has ImGuiWindowFlags_NoSavedSettings set (see kRootWindowFlags above), so
+                    // there's no .ini-persisted tab state keyed by the old label to worry about --
+                    // a plain rename is safe.
+                    if (ImGui::BeginTabItem("Spawn and Move", nullptr, toolsTabFlags))
                     {
                         // Side-by-side layout: spawn tree on the left, held-repeat move buttons on
                         // the right -- two independent BeginChild panes, NOT ImGui's old Columns()
@@ -507,7 +516,8 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Custom", nullptr, customTabFlags))
+                    // Renamed from "Custom" (2026-09-23, RedFalcon's own mockup).
+                    if (ImGui::BeginTabItem("Customize", nullptr, customTabFlags))
                     {
                         // Selected Target MOVED to the very top of the whole tab (2026-09-12,
                         // RedFalcon: "let's move selected target to the top of the custom tab") --
@@ -543,15 +553,52 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         ImGui::EndTabItem();
                     }
                     // "Photo Mode" (2026-09-21, RedFalcon: "I want a new Photo Mode tab to have the
-                    // camera and lights in it") -- Lights lives in CustomMenu.cpp (it already owns
-                    // all the request/status-file plumbing this section needs) but is drawn from
-                    // its own tab here, not folded into the "Custom" tab above. Camera controls
-                    // will land here too once built.
+                    // camera and lights in it") -- both live in CustomMenu.cpp (it already owns all
+                    // the request/status-file plumbing each needs) but are drawn from this own tab,
+                    // not folded into the "Custom" tab above. Originally stacked Camera above Lights
+                    // (2026-09-22); changed to SIDE BY SIDE (2026-09-23, RedFalcon: "review the
+                    // mockup for photo mode, as the plan is to have camera on the left and lighting
+                    // on the right so it fits in the window without scrolling" -- matches the
+                    // original mockup's own left/right layout, and stacking the two sections
+                    // vertically had grown taller than the window). Each half is its own BeginChild
+                    // (not just a BeginGroup) specifically so ImGui::GetContentRegionAvail() inside
+                    // DrawCameraSectionImpl/DrawLightsSectionImpl -- both of which size their own
+                    // rows/sliders off it -- correctly reports the HALF-width column instead of the
+                    // whole tab's width. Height 0 fills whatever's left of the tab's own area (which
+                    // the 780x620 window resize above was sized to cover); if either column's real
+                    // content still runs taller than that in practice, ImGui's normal child-window
+                    // scrollbar is the graceful fallback rather than the whole tab overflowing.
                     if (ImGui::BeginTabItem("Photo Mode", nullptr, photoModeTabFlags))
                     {
+                        // Gap widened + columns unequal (2026-09-23, RedFalcon: "add a little more
+                        // padding between the camera controls and lighting as they seem a bit
+                        // tight. Camera has more room to adjust so shrink its right side a bit") --
+                        // Camera's own content is compact/button-based with slack to spare, while
+                        // Lights' per-slot label/slider rows were the ones running cramped, so
+                        // Lights keeps the larger share of whatever Camera gives up.
+                        const float photoModeAvail = ImGui::GetContentRegionAvail().x;
+                        constexpr float kPhotoModeGap = 24.0f;
+                        const float photoModeUsable = photoModeAvail - kPhotoModeGap;
+                        const float photoModeCameraW = photoModeUsable * 0.42f;
+                        const float photoModeLightsW = photoModeUsable - photoModeCameraW;
+                        ImGui::BeginChild("##photomode_camera_col", ImVec2(photoModeCameraW, 0.0f), false);
+                        CustomMenu::DrawCameraSection();
+                        ImGui::EndChild();
+                        ImGui::SameLine(0.0f, kPhotoModeGap);
+                        ImGui::BeginChild("##photomode_lights_col", ImVec2(photoModeLightsW, 0.0f), false);
                         CustomMenu::DrawLightsSection();
+                        ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
+                    // 2026-09-23, RedFalcon asked to right-align these two -- tried
+                    // ImGuiTabItemFlags_Trailing, but reading Dear ImGui's own TabBarLayout
+                    // (imgui_widgets.cpp) confirmed it only keeps trailing tabs grouped at the end
+                    // and clamped from overlapping; it does NOT push them into unused bar width when
+                    // the tab bar is wider than its tabs (there's no built-in "float right" for a
+                    // plain, non-docked BeginTabBar). Doing this for real would mean replacing the
+                    // native tab bar with a hand-rolled button strip -- RedFalcon's call: "leave it
+                    // as-is" rather than take that tradeoff. Plain left-to-right order, no special
+                    // flag.
                     if (ImGui::BeginTabItem("Instructions", nullptr, instructionsTabFlags))
                     {
                         HelpMenu::DrawInstructionsTab();
@@ -571,6 +618,8 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // pair, complete no-op when not open) -- small and meant to be used right next to
                 // the D-pad it was opened from, so sharing this window's screen space is fine.
                 CoordsMenu::Draw();
+                // Same convention for the Photo Mode tab's own Camera Coords popup (2026-09-22).
+                CustomMenu::DrawCameraCoordsPopup();
 
                 ImGui::Render();
                 const float clear_color[4] = {0.06f, 0.06f, 0.08f, 1.0f};
