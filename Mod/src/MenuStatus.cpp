@@ -31,6 +31,7 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         std::string g_target_sex;
         bool g_target_static = false;
         bool g_target_is_character = true; // see TargetIsCharacter()'s own header for the default
+        float g_target_dist_m = 0.0f;
         int g_window_toggle_seq = 0;
         int g_focus_steal_seq = 0;
         std::string g_placement_mode = "MOVE"; // matches Spawner.placementMode's own default
@@ -126,6 +127,10 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 g_target_is_character = (value == "1");
             }
+            else if (key == "TARGET_DIST_M")
+            {
+                g_target_dist_m = std::strtof(value.c_str(), nullptr);
+            }
             else if (key == "PLACEMENT_MODE")
             {
                 g_placement_mode = value;
@@ -174,6 +179,7 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetSex() -> const std::string& { return g_target_sex; }
     auto TargetIsStatic() -> bool { return g_target_static; }
     auto TargetIsCharacter() -> bool { return g_target_is_character; }
+    auto TargetDistMeters() -> float { return g_target_dist_m; }
     auto PlacementMode() -> const std::string& { return g_placement_mode; }
     auto IsPlacementActive() -> bool { return g_placement_active; }
     auto ScrubActive() -> bool { return g_scrub_active; }

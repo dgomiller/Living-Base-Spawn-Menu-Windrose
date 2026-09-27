@@ -9,8 +9,10 @@
 #include <MenuStatus.hpp>
 #include <MoveMenu.hpp>
 #include <SpawnMenu.hpp>
+#include <TargetListMenu.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <thread>
 
 #include <d3d11.h>
@@ -133,6 +135,25 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 
         auto ThreadMain() -> void
         {
+            // DIAGNOSTIC STARTUP DELAY (2026-09-25, RedFalcon: F12/FPS-counter target this window
+            // instead of the game, and it "doesnt matter if its open or closed... i think its the
+            // timing of the hook maybe, like its running before the actual game registers so its
+            // treated as the primary window"). Hover-driven focus (see the render loop below) made
+            // ZERO difference, and RedFalcon separately confirmed the misbehavior happens even while
+            // this window is fully HIDDEN -- ruling out both focus AND visibility as the cause. The
+            // one thing that's true regardless of Show/HideWindow: this thread's own D3D11 device
+            // starts calling Present() every loop iteration the INSTANT CreateDeviceD3D succeeds
+            // below, likely well before Windrose's own real D3D12 swapchain exists (this thread starts
+            // from SpawnMenuMod::on_unreal_init, which can fire quite early). If Steam's overlay hook
+            // attaches to whichever swapchain in this process calls Present() FIRST (a known
+            // multi-swapchain heuristic issue), this thread would win that race every time, and no
+            // amount of focus/visibility juggling afterward could ever undo it. Testing that theory
+            // with a blunt delay before this thread creates its own device/swapchain at all, so the
+            // game's real one gets a real head start. If this fixes it, replace the fixed delay with
+            // something that actually detects the real game window/swapchain instead of guessing a
+            // duration.
+            std::this_thread::sleep_for(std::chrono::seconds(15));
+
             WNDCLASSEXW wc{sizeof(WNDCLASSEXW)};
             wc.style = CS_CLASSDC;
             wc.lpfnWndProc = WndProc;
@@ -155,6 +176,15 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
             // grown to compensate, clipping the Tools tab's bottom row. Still just a starting size,
             // the native window's own resize border works normally from here if this needs further
             // tuning.
+            // WS_EX_NOACTIVATE + hover-driven focus REVERTED (2026-09-25, same day) -- RedFalcon's
+            // own F12/screenshot-steals-the-gui report turned out NOT to be an OS-focus/activation
+            // problem at all (confirmed live: hover-driven focus made zero difference, and the
+            // misbehavior happened even with this window fully HIDDEN). Root cause was this thread's
+            // own D3D11 device/swapchain simply starting to Present() before Windrose's own real
+            // swapchain existed, winning whatever "which swapchain is the game" race Steam's overlay
+            // hook runs once at startup -- fixed with a startup delay in ThreadMain, see that
+            // function's own comment. Since OS focus was never the problem, the plain
+            // always-steal-focus-on-open behavior (see the '-' toggle block below) is restored as-is.
             HWND hwnd = CreateWindowExW(WS_EX_TOPMOST,
                                          wc.lpszClassName,
                                          WINDOW_TITLE_W,
@@ -303,7 +333,11 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // tradeoff: it steals OS focus from the game, so a second '-' press while still
                 // playing (game no longer focused) can't reach RegisterKeyBind to close it again that
                 // way -- covered instead by the local ImGui key check right below, which needs no
-                // game focus at all.
+                // game focus at all. RE-CONFIRMED 2026-09-25: a same-day hover-driven-focus/
+                // WS_EX_NOACTIVATE experiment (in response to an F12/FPS-counter report) was reverted
+                // after live testing showed OS focus was never the actual cause -- see ThreadMain's
+                // own startup-delay comment for the real root cause and fix. This plain
+                // always-steal-on-open behavior is back to how it always was.
                 {
                     static int last_seen_toggle_seq = 0;
                     int toggle_seq = MenuStatus::WindowToggleSeq();
@@ -389,6 +423,11 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // Steam's own screenshot hotkey (config.lua's own comment) and stays avoided.
                 const ImGuiTabItemFlags photoModeTabFlags =
                         ImGui::IsKeyPressed(ImGuiKey_F7, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                // F8 (2026-09-26, new "Target List" tab) -- next free function key after Photo
+                // Mode's F7; F9 stays permanently avoided (see the Tools comment above for why),
+                // F11/F12 are the OS/Steam's own screenshot hotkeys.
+                const ImGuiTabItemFlags targetListTabFlags =
+                        ImGui::IsKeyPressed(ImGuiKey_F8, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
 
                 // Pin the ImGui content window to exactly fill the native OS window's client area,
                 // with none of ImGui's own title bar/resize border/drag handling -- the native
@@ -588,6 +627,16 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         ImGui::BeginChild("##photomode_lights_col", ImVec2(photoModeLightsW, 0.0f), false);
                         CustomMenu::DrawLightsSection();
                         ImGui::EndChild();
+                        ImGui::EndTabItem();
+                    }
+                    // "Target List" (2026-09-26, RedFalcon: scan this mod's own tracked actors by
+                    // radius + category checkboxes, list nearest-first, target one directly instead
+                    // of the usual hover/probe pick). Self-contained single Draw() (unlike the
+                    // Spawn/Move tab's two-panel split, which StandaloneWindow itself lays out) --
+                    // TargetListMenu.cpp owns its own left/right BeginChild split internally.
+                    if (ImGui::BeginTabItem("Target List", nullptr, targetListTabFlags))
+                    {
+                        TargetListMenu::Draw();
                         ImGui::EndTabItem();
                     }
                     // 2026-09-23, RedFalcon asked to right-align these two -- tried

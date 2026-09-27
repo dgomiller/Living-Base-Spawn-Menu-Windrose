@@ -73,6 +73,14 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // uses -- callers already gate on hasTarget separately for the no-target case.
     auto TargetIsCharacter() -> bool;
 
+    // TARGET_DIST_M (2026-09-26, new "Target List" tab's own "large text updating distance"
+    // readout) -- live meters from the player pawn to the currently locked target, recomputed by
+    // main.lua's own SAME 300ms status-publish loop every other TARGET_* field already goes
+    // through (see that loop's own comment for why this piggybacks rather than needing a separate
+    // poll). 0.0 when nothing's locked, same "meaningless until TargetLabel() is checked first"
+    // convention as TargetX/Y/Z.
+    auto TargetDistMeters() -> float;
+
     // "MOVE" or "ROTATE" -- which meaning the six dual-purpose numpad direction keys (7/8/9/4/6/5,
     // and this window's own mirror of them) currently have (2026-08-24, numpad-only keybind
     // rebuild -- replaces the old single-axis RotateAxis()/','/'.'/'/ ' cycle concept, which no
