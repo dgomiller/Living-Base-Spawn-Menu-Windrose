@@ -4,6 +4,8 @@
 #include <MenuStatus.hpp>
 #include <StandaloneWindow.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -83,6 +85,24 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             }
             size_t end = s.find_last_not_of(" \t\r\n");
             return s.substr(start, end - start + 1);
+        }
+
+        auto to_lower(std::string s) -> std::string
+        {
+            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return s;
+        }
+
+        // Plain case-insensitive substring match -- "contains anywhere" already covers matching
+        // both a prefix ("Antagonist") and a mid-word hit ("Plant") for a query like "ant", so no
+        // separate reversed/anchored pass is needed.
+        auto contains_ci(const std::string& haystack, const std::string& needle) -> bool
+        {
+            if (needle.empty())
+            {
+                return true;
+            }
+            return to_lower(haystack).find(to_lower(needle)) != std::string::npos;
         }
 
         auto find_or_create_child(MenuNode& parent, const std::string& label) -> MenuNode&
@@ -202,15 +222,40 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             f << "ACTION:" << name << "\n";
         }
 
+        // Recursive "does this leaf, or any leaf under this branch, match the filter" check --
+        // used to decide whether a branch is worth drawing at all when a filter is active, so a
+        // branch with zero matching leaves anywhere under it is hidden rather than shown empty.
+        auto node_matches_filter(const MenuNode& node, const std::string& filter) -> bool
+        {
+            if (node.is_leaf && node.children.empty())
+            {
+                return contains_ci(node.label, filter);
+            }
+            for (auto& child : node.children)
+            {
+                if (node_matches_filter(*child, filter))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // draw_node now only SELECTS a leaf (highlights it, records roster/index/full-path) rather
         // than spawning immediately -- the Spawn/Replace buttons in Draw() act on the selection.
         // `path_prefix`: the breadcrumb accumulated so far, purely for the "Selected: ..." readout.
-        auto draw_node(MenuNode& node, const std::string& path_prefix) -> void
+        // `filter`: empty means "show everything" (original behavior); non-empty hides non-matching
+        // leaves and, recursively, any branch with no matching leaf anywhere under it.
+        auto draw_node(MenuNode& node, const std::string& path_prefix, const std::string& filter) -> void
         {
             std::string full_path = path_prefix.empty() ? node.label : path_prefix + " / " + node.label;
 
             if (node.is_leaf && node.children.empty())
             {
+                if (!filter.empty() && !contains_ci(node.label, filter))
+                {
+                    return;
+                }
                 bool is_selected = g_has_selection && g_selected_roster == node.roster && g_selected_index == node.index;
                 if (ImGui::Selectable(node.label.c_str(), is_selected))
                 {
@@ -222,11 +267,22 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 return;
             }
 
+            if (!filter.empty())
+            {
+                if (!node_matches_filter(node, filter))
+                {
+                    return;
+                }
+                // Auto-expand so a match isn't hidden behind a collapsed branch the user never
+                // opened -- filtering already narrowed the tree down to just what's relevant.
+                ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+            }
+
             if (ImGui::TreeNode(node.label.c_str()))
             {
                 for (auto& child : node.children)
                 {
-                    draw_node(*child, full_path);
+                    draw_node(*child, full_path, filter);
                 }
                 ImGui::TreePop();
             }
@@ -276,10 +332,43 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
 
     auto Draw() -> void
     {
-        if (ImGui::Button("Refresh"))
+        // Replaces the old "Refresh" button (2026-09-29, RedFalcon: redundant since Reload()
+        // already runs once at window startup and a stale ini mid-session was the only case it
+        // ever covered -- see [[project_spawn_menu_ini_stale_indices]] in memory). Case-insensitive
+        // substring filter over leaf labels only; matching branches stay visible, non-matching ones
+        // collapse away entirely -- see node_matches_filter()/draw_node()'s own comments.
+        static char s_filterBuf[128] = "";
+        static std::string s_activeFilter;
+
+        // Row sized to exactly match the tree BeginChild's own width just below (2026-09-29,
+        // RedFalcon: "I'd like that whole row to be the width of the tree box") -- both sit in the
+        // same content region, so computing off GetContentRegionAvail() here naturally lines up with
+        // the child's own width-0 ("fill available") sizing without any extra coordination.
+        constexpr float kFilterBtnW = 60.0f;
+        constexpr float kClearBtnW = 28.0f;
+        const float filterAvail = ImGui::GetContentRegionAvail().x;
+        const float filterInputW = filterAvail - kFilterBtnW - kClearBtnW - ImGui::GetStyle().ItemSpacing.x * 2.0f;
+
+        ImGui::PushItemWidth(filterInputW);
+        bool enterPressed = ImGui::InputText("##spawnmenu_filter", s_filterBuf, sizeof(s_filterBuf), ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::PopItemWidth();
+        ImGui::SameLine();
+        if (ImGui::Button("Filter", ImVec2(kFilterBtnW, 0.0f)) || enterPressed)
         {
-            Reload();
+            s_activeFilter = s_filterBuf;
         }
+        ImGui::SameLine();
+        // Red "X" clear button (2026-09-29, RedFalcon's request) -- empties both the textbox and the
+        // active filter in one click, same effect as clearing the text and pressing Filter.
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.65f, 0.12f, 0.12f, 0.8f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.16f, 0.16f, 0.9f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.55f, 0.08f, 0.08f, 1.0f));
+        if (ImGui::Button("X", ImVec2(kClearBtnW, 0.0f)))
+        {
+            s_filterBuf[0] = '\0';
+            s_activeFilter.clear();
+        }
+        ImGui::PopStyleColor(3);
         ImGui::Separator();
 
         // Restore-lock gate lives HERE, inside this function, rather than as one blanket
@@ -288,7 +377,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         ImGui::BeginDisabled(MenuStatus::IsRestoring());
         if (g_root.children.empty())
         {
-            ImGui::TextDisabled("(no entries -- check spawn_menu.ini exists and Refresh)");
+            ImGui::TextDisabled("(no entries -- check spawn_menu.ini exists)");
         }
         else
         {
@@ -297,8 +386,10 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             // text row (dropped 2026-08-16, RedFalcon: the tree's own highlighted row already shows
             // the selection -- a second text copy was redundant). Bottom margin widened from -44 to
             // -52 (2026-09-23) to fit the button row's own new height (kActionBtnH=28, up from the
-            // buttons' old ~20px default) without cramping.
-            ImGui::BeginChild("##spawnmenu_tree", ImVec2(0.0f, -52.0f), true);
+            // buttons' old ~20px default) without cramping, then to -88 (2026-09-29) when the button
+            // area grew from one row to two (see the button block's own comment below) -- adds
+            // roughly one more kActionBtnH row plus its own item spacing on top of the old margin.
+            ImGui::BeginChild("##spawnmenu_tree", ImVec2(0.0f, -88.0f), true);
             for (auto& child : g_root.children)
             {
                 // "Custom" (Poses/Skin Tones/Hair/Clothes) hidden here (2026-09-16, RedFalcon:
@@ -313,7 +404,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 {
                     continue;
                 }
-                draw_node(*child, "");
+                draw_node(*child, "", s_activeFilter);
             }
             ImGui::EndChild();
 
@@ -371,27 +462,46 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 doReplace();
             }
 
-            // 4-button row (2026-09-23, RedFalcon REVISED: "I forgot a button so we'll need to
-            // readjust again. Under the Spawn Tree, I want the buttons 'Confirm' (0), Spawn, Move
-            // and Replace. Then under the movement section, fitting the width, I want Cancel,
-            // Despawn, Undo") -- SUPERSEDES the previous 5-button layout: Cancel/Despawn moved back
-            // OUT of this row and into MoveMenu.cpp's own pane (alongside Undo), and Confirm is new
-            // here. Confirm/Move are one-shot actions on the SAME move_request.txt queue
-            // MoveMenu.cpp's numpad mirror already writes to (see queue_move_action's own header).
+            // 2-row button block (2026-09-29, RedFalcon: "move the bottom buttons for the spawn
+            // tab... make two rows. First button is 'Confirm' have it take up both rows and make it
+            // green... top row will be Spawn, Move, Replace, and below those are Cancel, Despawn and
+            // Undo. Make them as wide as the spawn box"). SUPERSEDES the previous 4-button single-row
+            // layout: Cancel/Despawn/Undo move IN here from MoveMenu.cpp's own pane (see that file's
+            // own comment marking their removal) rather than staying duplicated in both places.
             // kActionBtnH matches MoveMenu.cpp's own cellH (28.0f) exactly -- duplicated rather than
             // shared across translation units, same tolerance as MOVE_REQUEST_PATH just above. avail
             // is the tree child's own just-ended width (that BeginChild used width 0 = "fill the
-            // pane"), so 4 even columns here naturally span exactly the tree's own width with no
-            // extra math needed.
+            // pane"), so the 4-column split here (Confirm + 3 action columns) naturally spans exactly
+            // the tree's own width with no extra math needed -- same formula the old 4-equal-button
+            // row already used, just repurposed as Confirm's column plus the 3 columns the two action
+            // rows below share.
             constexpr float kActionBtnH = 28.0f;
             const float avail = ImGui::GetContentRegionAvail().x;
-            const float btnW = (avail - ImGui::GetStyle().ItemSpacing.x * 3.0f) / 4.0f;
+            const float gap = ImGui::GetStyle().ItemSpacing.x;
+            const float btnW = (avail - gap * 3.0f) / 4.0f;
+            const float rowGap = ImGui::GetStyle().ItemSpacing.y;
+            const float confirmH = kActionBtnH * 2.0f + rowGap;
+
+            // Explicit cursor placement (2026-09-29, RedFalcon: "buttons under the spawn box are
+            // still wrong" -- screenshot showed a gap between the two action rows). ImGui's line
+            // height is the TALLEST item on a row, so with the tall Confirm on row 1, the next
+            // auto-placed line always started below Confirm's bottom edge -- leaving a full-row gap
+            // under Spawn/Move/Replace no matter how spacing was tuned. Every button here is instead
+            // positioned directly via SetCursorPos from one shared origin, so Cancel/Despawn/Undo sit
+            // exactly one rowGap under Spawn/Move/Replace, beside Confirm's lower half.
+            const ImVec2 blockOrigin = ImGui::GetCursorPos();
+            auto colX = [&](int col) { return blockOrigin.x + static_cast<float>(col) * (btnW + gap); };
 
             // "Confirm" -- same action as Numpad 0 (CONFIRM_PLACEMENT): only meaningful while a
-            // placement/relocate preview is actively following the camera, same gate as Cancel's
-            // own reasoning (in MoveMenu.cpp's pane now).
+            // placement/relocate preview is actively following the camera. Green (RedFalcon's
+            // request, "make it green to stand out") regardless of enabled state -- BeginDisabled
+            // already dims it enough on its own when nothing's being placed, same as every other
+            // conditionally-enabled button on this row.
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.55f, 0.13f, 0.85f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.17f, 0.68f, 0.17f, 0.95f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.42f, 0.10f, 1.0f));
             ImGui::BeginDisabled(!MenuStatus::IsPlacementActive());
-            if (ImGui::Button("Confirm", ImVec2(btnW, kActionBtnH)))
+            if (ImGui::Button("Confirm", ImVec2(btnW, confirmH)))
             {
                 queue_move_action("CONFIRM_PLACEMENT");
             }
@@ -400,8 +510,9 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 ImGui::SetTooltip(MenuStatus::IsPlacementActive() ? "Lock the currently-previewed object in place (Numpad 0)" : "Nothing is currently being placed.");
             }
             ImGui::EndDisabled();
+            ImGui::PopStyleColor(3);
 
-            ImGui::SameLine();
+            ImGui::SetCursorPos(ImVec2(colX(1), blockOrigin.y));
             ImGui::BeginDisabled(!g_has_selection);
             if (ImGui::Button("Spawn", ImVec2(btnW, kActionBtnH)))
             {
@@ -415,7 +526,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
 
             // "Move" -- same action as Numpad * (GRAB_TARGET): start relocating whatever's
             // currently target-locked. Needs a locked target, same reasoning as Replace below.
-            ImGui::SameLine();
+            ImGui::SetCursorPos(ImVec2(colX(2), blockOrigin.y));
             ImGui::BeginDisabled(!hasTarget);
             if (ImGui::Button("Move", ImVec2(btnW, kActionBtnH)))
             {
@@ -427,7 +538,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             }
             ImGui::EndDisabled();
 
-            ImGui::SameLine();
+            ImGui::SetCursorPos(ImVec2(colX(3), blockOrigin.y));
             ImGui::BeginDisabled(!g_has_selection || !hasTarget);
             if (ImGui::Button("Replace", ImVec2(btnW, kActionBtnH)))
             {
@@ -441,6 +552,48 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 ImGui::SetTooltip(msg, g_selected_path.c_str());
             }
             ImGui::EndDisabled();
+
+            // Second row -- Cancel/Despawn/Undo, moved in from MoveMenu.cpp (2026-09-29, see this
+            // block's own header comment). Placed one rowGap below row 1, in columns 1-3 beside
+            // Confirm's lower half.
+            const float row2Y = blockOrigin.y + kActionBtnH + rowGap;
+            ImGui::SetCursorPos(ImVec2(colX(1), row2Y));
+            ImGui::BeginDisabled(!MenuStatus::IsPlacementActive());
+            if (ImGui::Button("Cancel", ImVec2(btnW, kActionBtnH)))
+            {
+                queue_move_action("CANCEL_PLACEMENT");
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(MenuStatus::IsPlacementActive() ? "Cancel the active placement/relocation (Numpad /)" : "Nothing is currently being placed.");
+            }
+
+            ImGui::SetCursorPos(ImVec2(colX(2), row2Y));
+            ImGui::BeginDisabled(!hasTarget);
+            if (ImGui::Button("Despawn", ImVec2(btnW, kActionBtnH)))
+            {
+                queue_move_action("DESPAWN");
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip(hasTarget ? "Despawn the targeted object (Numpad 3 / F4)" : "Target-lock something first (Num +)");
+            }
+
+            ImGui::SetCursorPos(ImVec2(colX(3), row2Y));
+            if (ImGui::Button("Undo", ImVec2(btnW, kActionBtnH)))
+            {
+                queue_move_action("UNDO");
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Restore the last despawn (Ctrl+Z)");
+            }
+            // Move the cursor below the whole block and register it with a zero-size Dummy so the
+            // window's content bounds account for it (SetCursorPos alone doesn't extend them).
+            ImGui::SetCursorPos(ImVec2(blockOrigin.x, blockOrigin.y + confirmH));
+            ImGui::Dummy(ImVec2(0.0f, 0.0f));
         }
         ImGui::EndDisabled(); // MenuStatus::IsRestoring()
     }

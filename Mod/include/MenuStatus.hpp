@@ -73,6 +73,21 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     // uses -- callers already gate on hasTarget separately for the no-target case.
     auto TargetIsCharacter() -> bool;
 
+    // TARGET_ISDECOR / TARGET_SCALE (2026-09-29, MoveMenu's new "Object Scale" +/- row) --
+    // TargetIsDecor() is NARROWER than TargetIsStatic() above (which also covers posed AnimatedActor/
+    // QuestStatic statues): only true for a plain decor prop (Spawner.IsDecorClass), since RedFalcon's
+    // request was "this feature should only be available for decor" specifically, not statues too.
+    // TargetScale() is the target's live uniform actor-root scale (K2_GetActorScale3D().X on the Lua
+    // side, same read Spawner.SetStaticActorScale's own console command already trusts) -- 1.0 default
+    // when nothing's locked, same "meaningless until TargetLabel() is checked first" convention as
+    // every other TARGET_* field in this file.
+    auto TargetIsDecor() -> bool;
+
+    // TIME_BUSY (2026-09-29, RedFalcon: closing the window mid time-change left the clock racing): true while a
+    // lbphototime / Photo Mode Time change is running. StandaloneWindow refuses every close path while this is set.
+    auto TimeBusy() -> bool;
+    auto TargetScale() -> float;
+
     // TARGET_DIST_M (2026-09-26, new "Target List" tab's own "large text updating distance"
     // readout) -- live meters from the player pawn to the currently locked target, recomputed by
     // main.lua's own SAME 300ms status-publish loop every other TARGET_* field already goes

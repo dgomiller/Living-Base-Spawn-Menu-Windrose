@@ -1,3 +1,4 @@
+#include <chrono>
 #include <BarbieMenu.hpp>
 
 #include <DynamicOutput/DynamicOutput.hpp>
@@ -35,6 +36,26 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // (Spawner.GetPhotoCamStatus's MODE= line) -- just the one line, no need to duplicate that
         // file's fuller POS/ROT/FOV parsing here.
         constexpr const char* PHOTOCAM_STATUS_PATH = "ue4ss/Mods/LivingBase/custom_photocam_status.txt";
+        // The Custom views (2026-10-01): Lua also ends a view by itself when a DIFFERENT object is locked, and Photo Mode's own mode buttons can end one -- so the
+        // "Zoom Out" labels follow the status file's MODE= (FULLBODY/FACE/DECOR = a Custom view is live). A click takes a moment to reach Lua, so mismatches are
+        // ignored for 1.5 s after the last click.
+        std::chrono::steady_clock::time_point g_zoomClickAt = std::chrono::steady_clock::time_point{};
+        auto LuaCustomViewActive() -> bool
+        {
+            std::ifstream f(PHOTOCAM_STATUS_PATH);
+            if (!f) { return false; }
+            std::string line;
+            while (std::getline(f, line))
+            {
+                if (!line.empty() && line.back() == '\r') { line.pop_back(); }
+                if (line.rfind("MODE=", 0) == 0)
+                {
+                    std::string mode = line.substr(5);
+                    return mode == "FULLBODY" || mode == "FACE" || mode == "DECOR";
+                }
+            }
+            return false;
+        }
         auto PhotoModeOwnsTripod() -> bool
         {
             std::ifstream f(PHOTOCAM_STATUS_PATH);
@@ -405,7 +426,7 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // out, drop it back to the regular character camera") -- ONE mode variable instead of two
         // independent bools so the two buttons are naturally mutually exclusive: selecting one
         // always clears the other's "Zoom Out" label on the next frame, with no extra bookkeeping.
-        enum class ZoomMode { None, FullBody, Face };
+        enum class ZoomMode { None, FullBody, Face, Decor };
         ZoomMode g_zoomMode = ZoomMode::None;
         auto WriteZoomRequest(const char* mode) -> void
         {
@@ -429,17 +450,21 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // back to before zooming in" without this side needing any state of its own beyond the
         // request file. Kept the "FACEVIEW" name (not renamed to something mode-neutral) since the
         // file path is already deployed/documented elsewhere -- only the payload shape changed.
-        constexpr const char* FACEVIEW_ROTATE_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_faceview_rotate_request.txt";
-        constexpr float kFaceViewRotateStepDegrees = 15.0f;
-        auto WriteFaceViewRotateRequest(const char* mode, float deltaDegrees) -> void
+        // Held-button camera queue (2026-10-01, RedFalcon: "hold down the zoom and orbit buttons similar to the move buttons"): the "<" ">" orbit and "+" "-" zoom
+        // buttons APPEND one line per press/repeat ("ORBIT:<signed degrees>" / "ZOOM:<+1 closer, -1 farther>") to this file -- a queue, like move_request.txt, because
+        // a held button fires many times between Lua drains (main.lua's BeltStrapPolls.camView, every 100 ms) and a single-slot file would drop all but the last.
+        // Lua knows which view is active (Decor/Full Body/Face), so no mode tag is sent. Replaces the old single-slot custom_faceview_rotate_request.txt.
+        constexpr const char* CAMVIEW_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_camview_request.txt";
+        constexpr float kCamOrbitStepDegrees = 4.0f;
+        auto AppendCamViewRequest(const char* kind, float amount) -> void
         {
-            std::ofstream f(FACEVIEW_ROTATE_REQUEST_PATH, std::ios::trunc);
+            std::ofstream f(CAMVIEW_REQUEST_PATH, std::ios::app);
             if (!f)
             {
-                Output::send<LogLevel::Error>(STR("[LivingBaseSpawnMenu] BarbieMenu: failed to write custom_faceview_rotate_request.txt\n"));
+                Output::send<LogLevel::Error>(STR("[LivingBaseSpawnMenu] BarbieMenu: failed to write custom_camview_request.txt\n"));
                 return;
             }
-            f << mode << ":" << deltaDegrees << "\n";
+            f << kind << ":" << amount << "\n";
         }
 
     } // namespace
@@ -472,7 +497,16 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // (2026-09-22) -- see PhotoModeOwnsTripod's own header. Same label-desync problem the
         // has_target check above already solves, just for a different "something else reset this"
         // signal.
-        if (g_zoomMode != ZoomMode::None && PhotoModeOwnsTripod())
+        // The status file lags the click by up to ~400 ms and can still say TRIPOD from before (2026-10-01: clicking Decor View right after switching from a Custom view
+        // to Photo Mode's Tripod reset the label at once, so it never showed "Zoom Out") -- same 1.5 s click grace as the check below.
+        if (g_zoomMode != ZoomMode::None && PhotoModeOwnsTripod() &&
+            (std::chrono::steady_clock::now() - g_zoomClickAt) > std::chrono::milliseconds(1500))
+        {
+            g_zoomMode = ZoomMode::None;
+        }
+        // Lua ended the view itself (target switched, Photo Mode took the camera...): drop the "Zoom Out" label once the click has had time to land.
+        if (g_zoomMode != ZoomMode::None && !LuaCustomViewActive() &&
+            (std::chrono::steady_clock::now() - g_zoomClickAt) > std::chrono::milliseconds(1500))
         {
             g_zoomMode = ZoomMode::None;
         }
@@ -483,8 +517,12 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // mode is already active is also allowed and switches straight over (Lua's
         // FaceViewOnTarget/ZoomTripodOnTarget both reuse/reposition the same tripod actor rather
         // than requiring an off/on cycle in between).
-        const bool can_click_fullbody = (g_zoomMode == ZoomMode::FullBody) || has_target;
-        const bool can_click_face = (g_zoomMode == ZoomMode::Face) || has_target;
+        // Decor split (2026-10-01, RedFalcon): Full Body / Face View are for NON-decor targets only (they read the character's chest/head bones), and the new
+        // Decor View is for decor only. An active mode can always turn itself back off.
+        const bool is_decor = MenuStatus::TargetIsDecor();
+        const bool can_click_decor = (g_zoomMode == ZoomMode::Decor) || (has_target && is_decor);
+        const bool can_click_fullbody = (g_zoomMode == ZoomMode::FullBody) || (has_target && !is_decor);
+        const bool can_click_face = (g_zoomMode == ZoomMode::Face) || (has_target && !is_decor);
         // Disabled for the WHOLE duration of an active placement/relocate session, in either
         // direction (2026-09-11, RedFalcon: "let's not enable it until placement... clicking it
         // while it can be moved is a problem") -- switching the active view to/from the tripod
@@ -497,6 +535,24 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // OTHER real button in this mod uses (Spawn/Replace/Spawn Custom); kPreviewSize was only
         // ever this button's height because it started life visually paired with the swatches
         // above, not because anything about the layout required it.
+        // "Decor View" (2026-10-01, RedFalcon: "on top of full body add a decor view button that is only available to decor") -- looks at the centre of the
+        // object's bounds from a distance based on its largest dimension (see Spawner.DecorViewOnTarget in spawner.lua).
+        ImGui::BeginDisabled(!can_click_decor || placement_active || MenuStatus::IsRestoring());
+        if (ImGui::Button(g_zoomMode == ZoomMode::Decor ? "Zoom Out" : "Decor View", ImVec2(kPreviewSize, 0.0f)))
+        {
+            if (g_zoomMode == ZoomMode::Decor)
+            {
+                WriteZoomRequest("UNZOOM");
+                g_zoomMode = ZoomMode::None;
+            }
+            else
+            {
+                WriteZoomRequest("DECOR");
+                g_zoomMode = ZoomMode::Decor;
+                g_zoomClickAt = std::chrono::steady_clock::now();
+            }
+        }
+        ImGui::EndDisabled();
         ImGui::BeginDisabled(!can_click_fullbody || placement_active || MenuStatus::IsRestoring());
         if (ImGui::Button(g_zoomMode == ZoomMode::FullBody ? "Zoom Out" : "Full Body", ImVec2(kPreviewSize, 0.0f)))
         {
@@ -509,6 +565,7 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
             {
                 WriteZoomRequest("ZOOM");
                 g_zoomMode = ZoomMode::FullBody;
+                g_zoomClickAt = std::chrono::steady_clock::now();
             }
         }
         ImGui::EndDisabled();
@@ -527,6 +584,7 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
             {
                 WriteZoomRequest("FACE");
                 g_zoomMode = ZoomMode::Face;
+                g_zoomClickAt = std::chrono::steady_clock::now();
             }
         }
         ImGui::EndDisabled();
@@ -539,19 +597,34 @@ namespace RC::LivingBaseSpawnMenu::BarbieMenu
         // exactly kPreviewSize, matching Full Body/Face View above them. Which mode is currently
         // active decides the payload's MODE tag (see WriteFaceViewRotateRequest's own header).
         {
+            // (2026-10-01) now FOUR buttons spanning the same width: "<" ">" orbit around the view's centre, "+" "-" zoom (5% of the starting distance per
+            // press, see Spawner.CameraViewNudge). All four hold-to-repeat like the move buttons (PushButtonRepeat) -- each press/repeat appends a line to
+            // custom_camview_request.txt. Active for every view (Decor, Full Body, Face View).
             const bool can_rotate = (g_zoomMode != ZoomMode::None) && !placement_active && !MenuStatus::IsRestoring();
-            const char* rotate_mode = (g_zoomMode == ZoomMode::FullBody) ? "FULLBODY" : "FACE";
-            const float halfW = (kPreviewSize - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+            const float spacing = ImGui::GetStyle().ItemSpacing.x;
+            const float quarterW = (kPreviewSize - 3.0f * spacing) * 0.25f;
             ImGui::BeginDisabled(!can_rotate);
-            if (ImGui::Button("<##faceview_rotate_left", ImVec2(halfW, 0.0f)))
+            ImGui::PushButtonRepeat(true);
+            if (ImGui::Button("<##camview_orbit_left", ImVec2(quarterW, 0.0f)))
             {
-                WriteFaceViewRotateRequest(rotate_mode, -kFaceViewRotateStepDegrees);
+                AppendCamViewRequest("ORBIT", -kCamOrbitStepDegrees);
             }
             ImGui::SameLine();
-            if (ImGui::Button(">##faceview_rotate_right", ImVec2(halfW, 0.0f)))
+            if (ImGui::Button(">##camview_orbit_right", ImVec2(quarterW, 0.0f)))
             {
-                WriteFaceViewRotateRequest(rotate_mode, kFaceViewRotateStepDegrees);
+                AppendCamViewRequest("ORBIT", kCamOrbitStepDegrees);
             }
+            ImGui::SameLine();
+            if (ImGui::Button("+##camview_zoom_in", ImVec2(quarterW, 0.0f)))
+            {
+                AppendCamViewRequest("ZOOM", 1.0f);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("-##camview_zoom_out", ImVec2(quarterW, 0.0f)))
+            {
+                AppendCamViewRequest("ZOOM", -1.0f);
+            }
+            ImGui::PopButtonRepeat();
             ImGui::EndDisabled();
         }
         // "(no target)" caption removed (2026-09-16, RedFalcon: "remove no target from under the

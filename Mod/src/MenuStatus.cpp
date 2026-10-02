@@ -31,6 +31,9 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         std::string g_target_sex;
         bool g_target_static = false;
         bool g_target_is_character = true; // see TargetIsCharacter()'s own header for the default
+        bool g_target_is_decor = false;
+        bool g_time_busy = false; // TIME_BUSY: a lbphototime / Photo Mode Time change is running (window must not close)
+        float g_target_scale = 1.0f;
         float g_target_dist_m = 0.0f;
         int g_window_toggle_seq = 0;
         int g_focus_steal_seq = 0;
@@ -131,6 +134,18 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 g_target_dist_m = std::strtof(value.c_str(), nullptr);
             }
+            else if (key == "TIME_BUSY")
+            {
+                g_time_busy = (value == "1");
+            }
+            else if (key == "TARGET_ISDECOR")
+            {
+                g_target_is_decor = (value == "1");
+            }
+            else if (key == "TARGET_SCALE")
+            {
+                g_target_scale = std::strtof(value.c_str(), nullptr);
+            }
             else if (key == "PLACEMENT_MODE")
             {
                 g_placement_mode = value;
@@ -179,6 +194,9 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetSex() -> const std::string& { return g_target_sex; }
     auto TargetIsStatic() -> bool { return g_target_static; }
     auto TargetIsCharacter() -> bool { return g_target_is_character; }
+    auto TargetIsDecor() -> bool { return g_target_is_decor; }
+    auto TimeBusy() -> bool { return g_time_busy; }
+    auto TargetScale() -> float { return g_target_scale; }
     auto TargetDistMeters() -> float { return g_target_dist_m; }
     auto PlacementMode() -> const std::string& { return g_placement_mode; }
     auto IsPlacementActive() -> bool { return g_placement_active; }

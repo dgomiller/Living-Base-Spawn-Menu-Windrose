@@ -23,6 +23,7 @@ add_library(${TARGET} SHARED
         src/ImageLoader.cpp
         src/BarbieMenu.cpp
         src/TargetListMenu.cpp
+        src/SignMenu.cpp
         "${ImGui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp"
 )
 

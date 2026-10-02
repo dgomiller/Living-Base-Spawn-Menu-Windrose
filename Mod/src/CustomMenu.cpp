@@ -3116,7 +3116,8 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
     // have it contain only everything under the poses branch from the tools tab"). Reuses
     // SpawnMenu::GetPosesTree() (the "Custom > Poses" subtree the Tools tab's own tree already
     // parses from spawn_menu.ini) rather than re-parsing that file here -- one source of truth,
-    // refreshed whenever the Tools tab's own "Refresh" button is pressed.
+    // refreshed whenever SpawnMenu::Reload() runs (currently just once, at window startup -- see
+    // that function's own callers).
 
     // Recursively finds the FIRST leaf whose own label matches `wantLabel` -- used by the pose
     // "reset" X button below to look up "Regular Fem Player Idle"/"Regular Masc Player Idle"'s own
@@ -3748,7 +3749,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
     // PhotoCamAdjustOffset, spawner.lua) -- First Person gets positional-offset-only (RedFalcon:
     // rotation stays on the mouse there). Coords stays Tripod-only per the original mockup, and is
     // now a real edit popup (see DrawCameraCoordsPopup below), not a passive readout.
-    enum class PhotoCamMode { Off, Tripod, Selfie, FirstPerson };
+    enum class PhotoCamMode { Off, Tripod, Selfie, FirstPerson, CustomView }; // CustomView = a Custom-tab Decor/Full Body/Face view is active (2026-10-01)
     PhotoCamMode g_photoCamMode = PhotoCamMode::Off;
     bool g_photoCamHasPose = false;
     float g_photoCamPos[3] = { 0.0f, 0.0f, 0.0f };
@@ -3781,6 +3782,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
                 if (value == "TRIPOD") { g_photoCamMode = PhotoCamMode::Tripod; }
                 else if (value == "SELFIE") { g_photoCamMode = PhotoCamMode::Selfie; }
                 else if (value == "FIRSTPERSON") { g_photoCamMode = PhotoCamMode::FirstPerson; }
+                else if (value == "FULLBODY" || value == "FACE" || value == "DECOR") { g_photoCamMode = PhotoCamMode::CustomView; }
                 else { g_photoCamMode = PhotoCamMode::Off; }
             }
             else if (key == "POS")
@@ -4004,6 +4006,9 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         // Reset + move, see spawner.lua's own PhotoCamSetMode/MoveFirstPersonRelative).
         const bool hasTripodOrSelfie = (g_photoCamMode == PhotoCamMode::Tripod) || (g_photoCamMode == PhotoCamMode::Selfie);
         const bool hasAnyCam = hasTripodOrSelfie || (g_photoCamMode == PhotoCamMode::FirstPerson);
+        // A Custom-tab camera view (Decor View / Full Body / Face View) also activates the move pad, Rotate, FOV and Reset (2026-10-01, RedFalcon) -- but NOT
+        // Coords, Selfie or Target Highlight (hasAnyCam / the Tripod-only gates are left exactly as they were).
+        const bool hasCustomView = (g_photoCamMode == PhotoCamMode::CustomView);
         const float avail = ImGui::GetContentRegionAvail().x;
         const float thirdW = (avail - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
         // Taller buttons throughout this section (2026-09-23, RedFalcon: "the camera section be the
@@ -4067,7 +4072,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         // so only the Reset button directly under whichever mode is CURRENTLY active is enabled; the
         // other two stay greyed rather than silently doing nothing if clicked.
         const bool restoreOrPlacementBlocked = placementActive || MenuStatus::IsRestoring();
-        ImGui::BeginDisabled(g_photoCamMode != PhotoCamMode::Tripod || restoreOrPlacementBlocked);
+        ImGui::BeginDisabled((g_photoCamMode != PhotoCamMode::Tripod && !hasCustomView) || restoreOrPlacementBlocked); // Reset##tripod also clears a Custom view's pad offset
         if (ImGui::Button("Reset##tripod", ImVec2(thirdW, kCamBtnH))) { WritePhotoCamModeRequest("RESET"); }
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -4134,7 +4139,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         const float moveStep = kCamMoveStepUU * CAM_PRECISION_SCALES[g_camPrecisionIdx];
         const float rotateStep = kCamRotateStepDeg * CAM_PRECISION_SCALES[g_camPrecisionIdx];
         const float padW = (avail - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
-        ImGui::BeginDisabled(!hasAnyCam || placementActive || MenuStatus::IsRestoring());
+        ImGui::BeginDisabled(!(hasAnyCam || hasCustomView) || placementActive || MenuStatus::IsRestoring());
         {
             ImGui::PushButtonRepeat(true);
             ImGui::Dummy(ImVec2(padW, kCamBtnH));
@@ -4156,7 +4161,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
 
         ImGui::Spacing();
 
-        ImGui::BeginDisabled(!hasAnyCam || placementActive || MenuStatus::IsRestoring());
+        ImGui::BeginDisabled(!(hasAnyCam || hasCustomView) || placementActive || MenuStatus::IsRestoring());
         ImGui::PushButtonRepeat(true);
         if (ImGui::Button("Up", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("up", moveStep); }
         ImGui::SameLine();
@@ -4186,7 +4191,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         // MoveMenu.cpp's own Rotate section, X/Y/Z = Roll/Pitch/Yaw (Unreal's own FRotator
         // convention, matching that file's axisRow exactly). Roll is genuinely new here (spawner.lua
         // previously only tracked pitch/yaw offset -- see Spawner._photoCamOffsets' own header).
-        ImGui::BeginDisabled(!hasTripodOrSelfie || placementActive || MenuStatus::IsRestoring());
+        ImGui::BeginDisabled(!(hasTripodOrSelfie || hasCustomView) || placementActive || MenuStatus::IsRestoring());
         {
             ImGui::TextUnformatted("Rotate");
             ImGui::PushButtonRepeat(true);
@@ -4222,7 +4227,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
 
         // FOV moved ABOVE Precision (2026-09-23, RedFalcon's mockup) -- only meaningful on the
         // tripod's own CameraActor (Spawner.SetTripodFOV), so gated to Tripod/Selfie same as Rotate.
-        ImGui::BeginDisabled(!hasTripodOrSelfie || placementActive || MenuStatus::IsRestoring());
+        ImGui::BeginDisabled(!(hasTripodOrSelfie || hasCustomView) || placementActive || MenuStatus::IsRestoring());
         ImGui::TextUnformatted("FOV");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(avail - ImGui::CalcTextSize("FOV").x - ImGui::GetStyle().ItemSpacing.x);
@@ -4396,7 +4401,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         // instead of continuing on cleanly from the hint text above.
         {
             const ImVec2 afterHintPos = ImGui::GetCursorPos();
-            const float cameraTopY = targetRowY - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.y;
+            const float cameraTopY = targetRowY - 2.0f * (ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y); // two buttons above Face View now (Decor View + Full Body)
             ImGui::SetCursorPos(ImVec2(cameraX, cameraTopY));
             ImGui::BeginGroup();
             BarbieMenu::DrawCameraControls();

@@ -5,6 +5,7 @@
 #include <MenuStatus.hpp>
 #include <StandaloneWindow.hpp>
 
+#include <cstdio>
 #include <fstream>
 #include <string>
 #include <utility>
@@ -371,6 +372,52 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::Spacing();
         ImGui::Separator();
 
+        // Object Scale (2026-09-29, RedFalcon: "above Precision and the line above it put 'Object
+        // Scale' with + and - buttons and a number representing scale... allow precision to affect
+        // it... this feature should only be available for decor... allow scale to work even while in
+        // placement mode"). Decor-only (MenuStatus::TargetIsDecor(), narrower than the TargetIsStatic()
+        // gate used elsewhere -- statues stay excluded on purpose). Deliberately NOT wrapped in the
+        // !hasTarget BeginDisabled block above (that block ends right before this one) or gated on
+        // IsPlacementActive() at all -- RedFalcon's explicit ask was for this to keep working through
+        // an active placement/relocate preview, unlike Cancel below (which needs one) or Despawn
+        // (which needs hasTarget only, same as this).
+        {
+            // Single line (2026-09-29, RedFalcon: "I want object scale on one line so 'Object
+            // scale' then + then - then scale number") -- label, then +, then -, then the readout,
+            // reusing the same "wide3 - GetCursorPosX()" trick the Precision slider below already
+            // uses to make the trailing readout reach the same right edge as every other full-width
+            // row in this panel, rather than a fixed width.
+            const bool scaleEnabled = hasTarget && MenuStatus::TargetIsDecor();
+            ImGui::BeginDisabled(!scaleEnabled);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Object Scale");
+            HoverTooltip(scaleEnabled ? "Resize the targeted decor prop -- step affected by Precision below"
+                                       : "Target-lock a decor prop first (statues/characters/animals don't support this)");
+            ImGui::SameLine();
+            const float scaleBtnW = cellH; // square, matching the target-lock +/- button's own convention
+            repeatButton("+##object_scale_up", "SCALE_UP", scaleBtnW, cellH, "Increase scale");
+            ImGui::SameLine();
+            repeatButton("-##object_scale_down", "SCALE_DOWN", scaleBtnW, cellH, "Decrease scale (floor 0.1)");
+            ImGui::SameLine();
+            {
+                char scaleBuf[32];
+                std::snprintf(scaleBuf, sizeof(scaleBuf), "%.2f", MenuStatus::TargetScale());
+                const float scaleBoxW = wide3 - ImGui::GetCursorPosX();
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyle().Colors[ImGuiCol_FrameBgHovered]);
+                ImGui::BeginChild("##object_scale_readout", ImVec2(scaleBoxW, cellH), true, ImGuiWindowFlags_NoScrollbar);
+                float textW = ImGui::CalcTextSize(scaleBuf).x;
+                ImGui::SetCursorPosX((scaleBoxW - textW) * 0.5f);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(scaleBuf);
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndDisabled();
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
         // Precision: how big a step Up/Down/slide take per nudge (rotate is unaffected). This
         // slider is the ONLY way to change it now (2026-08-24, numpad-only keybind rebuild -- the
         // old in-game Num- precision cycle is gone, Num- is the window Open/Close key now) -- see
@@ -395,39 +442,11 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Cancel/Despawn/Undo (2026-09-23, RedFalcon REVISED: "under the movement section, fitting
-        // the width, I want Cancel, Despawn, Undo") -- SUPERSEDES the earlier "Despawn moved to
-        // SpawnMenu.cpp" version: Despawn is back here, joined by Cancel (previously only living in
-        // SpawnMenu.cpp's own row, now REMOVED from there since Confirm took its place there
-        // instead -- see SpawnMenu.cpp's own comment for the current split). "Fitting the width"
-        // reuses this Draw()'s own existing cellW (3 even columns already computed above for the
-        // D-pad, `(avail - gap*2)/3` -- exactly wide3 split into thirds), not a separate width calc.
-        // Cancel matches Numpad / (CANCEL_PLACEMENT, only meaningful mid-placement); Despawn matches
-        // Numpad 3 / F4 (needs a locked target, same reasoning as Replace); Undo needs neither, since
-        // it operates on the last despawn regardless of what's currently locked.
-        ImGui::BeginDisabled(!MenuStatus::IsPlacementActive());
-        if (ImGui::Button("Cancel", ImVec2(cellW, cellH)))
-        {
-            queueAction("CANCEL_PLACEMENT");
-        }
-        ImGui::EndDisabled();
-        HoverTooltip(MenuStatus::IsPlacementActive() ? "Cancel the active placement/relocation (Numpad /)" : "Nothing is currently being placed.");
-
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!hasTarget);
-        if (ImGui::Button("Despawn", ImVec2(cellW, cellH)))
-        {
-            queueAction("DESPAWN");
-        }
-        ImGui::EndDisabled();
-        HoverTooltip(hasTarget ? "Despawn the targeted object (Numpad 3 / F4)" : "Target-lock something first (Num +)");
-
-        ImGui::SameLine();
-        if (ImGui::Button("Undo", ImVec2(cellW, cellH)))
-        {
-            queueAction("UNDO");
-        }
-        HoverTooltip("Restore the last despawn (Ctrl+Z)");
+        // Cancel/Despawn/Undo MOVED OUT (2026-09-29, RedFalcon: "move the bottom buttons for the
+        // spawn tab... top row Spawn, Move, Replace, below Cancel, Despawn and Undo") -- these three
+        // now live in SpawnMenu.cpp's own button block (alongside Spawn/Move/Replace and a tall
+        // green Confirm), replacing this row rather than duplicating it. See that file's own comment
+        // for the current layout.
 
         // Delete All: kept at the bottom, deliberately separated from everything else above, and
         // gated behind a real confirmation popup -- this destroys every actor LivingBase has

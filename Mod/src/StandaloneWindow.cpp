@@ -9,10 +9,12 @@
 #include <MenuStatus.hpp>
 #include <MoveMenu.hpp>
 #include <SpawnMenu.hpp>
+#include <SignMenu.hpp>
 #include <TargetListMenu.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <fstream>
 #include <thread>
 
 #include <d3d11.h>
@@ -34,8 +36,10 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
         // below -- keep both in sync with each other AND with LivingBase/mod.txt's own version
         // number (2026-08-24, RedFalcon's request) -- this companion mod doesn't track a separate
         // version of its own, it ships alongside LivingBase.
-        constexpr const wchar_t* WINDOW_TITLE_W = L"Living Base Enhanced - v3.0.0";
-        constexpr const char* WINDOW_TITLE = "Living Base Enhanced - v3.0.0";
+        constexpr const wchar_t* WINDOW_TITLE_W = L"Living Base Enhanced - v3.0.5";
+        // "###LivingBaseMain" = a fixed ImGui window ID (2026-10-01): the text before it is what is shown, but the saved position/size no longer resets
+        // every time the version in the title changes. (The native Win32 title above has no ### part.)
+        constexpr const char* WINDOW_TITLE = "Living Base Enhanced - v3.0.5###LivingBaseMain";
 
         std::thread g_thread;
         std::atomic_bool g_stop_requested{};
@@ -47,6 +51,99 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
         // the latter called synchronously from SpawnMenu::Draw() while it's running on this same
         // thread) -- no cross-thread synchronization needed.
         HWND g_previous_foreground_window{};
+
+        // GUI scale (2026-09-29, RedFalcon: "a gui resize option... dropdown on the top right alongside
+        // Shade: that does .5, 1, 1.5, 2, 3 and the windowsize and all the objects in it resize the
+        // same amount"). Implemented as ImGui's own hi-DPI mechanism rather than touching every
+        // hard-coded pixel size across the tab files: the frame runs at a LOGICAL size
+        // (client / scale) with io.DisplayFramebufferScale = scale, so every widget, and the font
+        // rasterizer (ImGui 1.92 derives glyph density from that framebuffer scale, so text stays
+        // crisp), scales together. Mouse coordinates are divided by the same factor in WndProc.
+        // Persisted across launches in a tiny sidecar file.
+        float g_uiScale = 1.0f;
+        constexpr const char* UI_SCALE_PATH = "ue4ss/Mods/LivingBase/spawn_menu_ui_scale.txt";
+        constexpr float kUiScaleValues[5] = {0.5f, 1.0f, 1.5f, 2.0f, 3.0f};
+        constexpr const char* kUiScaleLabels[5] = {"0.5x", "1x", "1.5x", "2x", "3x"};
+
+        auto LoadUiScale() -> void
+        {
+            std::ifstream f(UI_SCALE_PATH);
+            float v = 0.0f;
+            if (f && (f >> v))
+            {
+                for (float allowed : kUiScaleValues)
+                {
+                    if (v == allowed)
+                    {
+                        g_uiScale = v;
+                    }
+                }
+            }
+        }
+
+        auto SaveUiScale() -> void
+        {
+            std::ofstream f(UI_SCALE_PATH, std::ios::trunc);
+            if (f)
+            {
+                f << g_uiScale << "\n";
+            }
+        }
+
+        // Resizes the native window by newS/oldS, capped to the monitor's work area (RedFalcon: "cap
+        // the height to the current screen size, that way they can use scroll if they want" -- the
+        // tabs already scroll their own content when the window is shorter than it needs). While
+        // shaded, height is instead the 32-logical-px strip at the new scale, and the remembered
+        // un-shaded height is rescaled so Expand restores the right size.
+        // Window size is always derived from the remembered 1x size (g_baseW/H), NOT from the
+        // window's current size -- when a previous scale got capped to the monitor, the current size
+        // no longer equals base*scale, and scaling from it made 3x -> 1x land at the wrong ratio
+        // (RedFalcon's report). g_baseW/H track user drag-resizes via the check in the render loop.
+        // Tick count of the last close attempt refused because a time change was running (0 = none) -- drives the
+        // "can't close yet" notice next to the Hide GUI button.
+        ULONGLONG g_closeBlockedAt = 0;
+        int g_baseW = 780;
+        int g_baseH = 620;
+        int g_lastW = 0;
+        int g_lastH = 0;
+
+        auto ApplyWindowScale(HWND hwnd, float newS, bool shaded) -> void
+        {
+            RECT r{};
+            GetWindowRect(hwnd, &r);
+            int w = static_cast<int>(g_baseW * newS);
+            int h = static_cast<int>(g_baseH * newS);
+            HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO mi{sizeof(MONITORINFO)};
+            GetMonitorInfoW(mon, &mi);
+            const int workW = mi.rcWork.right - mi.rcWork.left;
+            const int workH = mi.rcWork.bottom - mi.rcWork.top;
+            if (shaded)
+            {
+                RECT client{0, 0, w, static_cast<int>(32.0f * newS)};
+                AdjustWindowRectEx(&client, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_TOPMOST);
+                h = client.bottom - client.top;
+            }
+            else if (h > workH)
+            {
+                h = workH;
+            }
+            if (w > workW)
+            {
+                w = workW;
+            }
+            int x = r.left;
+            int y = r.top;
+            if (x + w > mi.rcWork.right) x = mi.rcWork.right - w;
+            if (y + h > mi.rcWork.bottom) y = mi.rcWork.bottom - h;
+            if (x < mi.rcWork.left) x = mi.rcWork.left;
+            if (y < mi.rcWork.top) y = mi.rcWork.top;
+            SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER);
+            RECT after{};
+            GetWindowRect(hwnd, &after);
+            g_lastW = after.right - after.left;
+            g_lastH = after.bottom - after.top;
+        }
 
         ComPtr<ID3D11Device> g_device;
         ComPtr<ID3D11DeviceContext> g_device_context;
@@ -104,6 +201,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 
         LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         {
+            // Client-area mouse coordinates arrive in physical pixels; the frame runs at logical
+            // size (see g_uiScale's comment), so hand ImGui the logical position.
+            if (msg == WM_MOUSEMOVE && g_uiScale != 1.0f)
+            {
+                const int mx = static_cast<int>(static_cast<short>(LOWORD(lparam)) / g_uiScale);
+                const int my = static_cast<int>(static_cast<short>(HIWORD(lparam)) / g_uiScale);
+                lparam = MAKELPARAM(static_cast<WORD>(mx), static_cast<WORD>(my));
+            }
             if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam))
             {
                 return true;
@@ -125,6 +230,13 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 }
                 break;
             case WM_CLOSE:
+                // A time change is still running: the window must stay open until it finishes (closing it
+                // mid-change left the day cycle racing with nothing to stop it). Swallow the close.
+                if (MenuStatus::TimeBusy())
+                {
+                    g_closeBlockedAt = GetTickCount64();
+                    return 0;
+                }
                 // Hide instead of destroying -- matches the "toggle it closed, keep playing,
                 // toggle it back open" workflow this window is meant for, not a one-shot app.
                 ShowWindow(hwnd, SW_HIDE);
@@ -204,6 +316,19 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 DestroyWindow(hwnd);
                 UnregisterClassW(wc.lpszClassName, wc.hInstance);
                 return;
+            }
+
+            // Restore the last-used GUI scale (see g_uiScale) and size the window to match.
+            LoadUiScale();
+            if (g_uiScale != 1.0f)
+            {
+                ApplyWindowScale(hwnd, g_uiScale, false);
+            }
+            {
+                RECT initial{};
+                GetWindowRect(hwnd, &initial);
+                g_lastW = initial.right - initial.left;
+                g_lastH = initial.bottom - initial.top;
             }
 
             // Starts HIDDEN (2026-08-16, RedFalcon's request) -- toggled open/closed via '-' from
@@ -346,7 +471,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         last_seen_toggle_seq = toggle_seq;
                         if (IsWindowVisible(hwnd))
                         {
-                            ShowWindow(hwnd, SW_HIDE);
+                            if (MenuStatus::TimeBusy())
+                            {
+                                g_closeBlockedAt = GetTickCount64(); // Lua's '-' key: refused while time is changing
+                            }
+                            else
+                            {
+                                ShowWindow(hwnd, SW_HIDE);
+                            }
                         }
                         else
                         {
@@ -380,6 +512,17 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 
                 ImGui_ImplDX11_NewFrame();
                 ImGui_ImplWin32_NewFrame();
+                // Run the frame at logical size and let the framebuffer scale blow it back up --
+                // see g_uiScale's comment. Must happen after the backend sets io.DisplaySize and
+                // before ImGui::NewFrame() reads it.
+                // Applied unconditionally, INCLUDING at 1x: DisplayFramebufferScale persists across
+                // frames (the backend only resets DisplaySize), so skipping it at 1x left the
+                // previous scale's value in place and text stayed enlarged (RedFalcon's report).
+                {
+                    ImGuiIO& scaleIo = ImGui::GetIO();
+                    scaleIo.DisplaySize = ImVec2(scaleIo.DisplaySize.x / g_uiScale, scaleIo.DisplaySize.y / g_uiScale);
+                    scaleIo.DisplayFramebufferScale = ImVec2(g_uiScale, g_uiScale);
+                }
                 ImGui::NewFrame();
 
                 // Numpad '-' (2026-08-24, numpad-only keybind rebuild -- was the plain '-'/Minus
@@ -393,7 +536,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // no round trip through Lua needed for this direction.
                 if (ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false))
                 {
-                    ShowWindow(hwnd, SW_HIDE);
+                    if (MenuStatus::TimeBusy())
+                    {
+                        g_closeBlockedAt = GetTickCount64(); // refused while a time change is running
+                    }
+                    else
+                    {
+                        ShowWindow(hwnd, SW_HIDE);
+                    }
                 }
 
                 // F1/F5/F6/F10 tab shortcuts (2026-08-24, numpad-only keybind rebuild; F6 added
@@ -428,6 +578,11 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // F11/F12 are the OS/Steam's own screenshot hotkeys.
                 const ImGuiTabItemFlags targetListTabFlags =
                         ImGui::IsKeyPressed(ImGuiKey_F8, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                // "Signs" (2026-09-29): switched to whenever the in-game Delete key is pressed -- Lua
+                // bumps SIGN_TAB_SEQ in sign_status.txt (signs.lua's Signs.KeyPressed). Must be polled
+                // here, every frame, since SignMenu::Draw only runs while its own tab is active.
+                const ImGuiTabItemFlags signsTabFlags =
+                        SignMenu::ConsumeTabRequest() ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
 
                 // Pin the ImGui content window to exactly fill the native OS window's client area,
                 // with none of ImGui's own title bar/resize border/drag handling -- the native
@@ -454,33 +609,106 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // even while shaded -- just enough room for this SAME button to stay visible/
                 // clickable, since a fully zero-height client area would leave no way to un-shade.
                 static bool g_windowShaded = false;
-                static int g_savedWindowHeight = 620; // CreateWindowExW's own initial height; overwritten the first time this actually runs
-                if (ImGui::SmallButton(g_windowShaded ? "\xE2\x96\xBC Expand" : "\xE2\x96\xB2 Shade"))
+                // Track user drag-resizes as the remembered 1x size (g_baseW/H), so scale changes
+                // always derive from it -- see ApplyWindowScale's comment. Skipped while shaded or
+                // minimized (their rects aren't the real un-shaded size).
+                if (!g_windowShaded && !IsIconic(hwnd))
                 {
-                    RECT rect{};
-                    GetWindowRect(hwnd, &rect);
-                    const int width = rect.right - rect.left;
+                    RECT cur{};
+                    GetWindowRect(hwnd, &cur);
+                    const int curW = cur.right - cur.left;
+                    const int curH = cur.bottom - cur.top;
+                    if (curW != g_lastW || curH != g_lastH)
+                    {
+                        g_baseW = static_cast<int>(curW / g_uiScale);
+                        g_baseH = static_cast<int>(curH / g_uiScale);
+                        g_lastW = curW;
+                        g_lastH = curH;
+                    }
+                }
+                // Relabeled "Show GUI"/"Hide GUI" (2026-09-29, RedFalcon: clearer for end users than
+                // "Shade"/"Expand").
+                if (ImGui::SmallButton(g_windowShaded ? "Show GUI" : "Hide GUI"))
+                {
                     if (!g_windowShaded)
                     {
-                        g_savedWindowHeight = rect.bottom - rect.top;
+                        RECT rect{};
+                        GetWindowRect(hwnd, &rect);
+                        const int width = rect.right - rect.left;
                         // AdjustWindowRectEx: the correct Win32 way to turn "N pixels of CLIENT
                         // area" into the full outer window size for THIS window's real style/border,
                         // rather than hand-guessing caption/border metrics.
-                        RECT client{0, 0, width, 32};
+                        RECT client{0, 0, width, static_cast<int>(32.0f * g_uiScale)};
                         AdjustWindowRectEx(&client, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_TOPMOST);
                         SetWindowPos(hwnd, nullptr, rect.left, rect.top, width, client.bottom - client.top, SWP_NOZORDER);
+                        RECT shadedRect{};
+                        GetWindowRect(hwnd, &shadedRect);
+                        g_lastW = shadedRect.right - shadedRect.left;
+                        g_lastH = shadedRect.bottom - shadedRect.top;
                     }
                     else
                     {
-                        SetWindowPos(hwnd, nullptr, rect.left, rect.top, width, g_savedWindowHeight, SWP_NOZORDER);
+                        ApplyWindowScale(hwnd, g_uiScale, false);
                     }
                     g_windowShaded = !g_windowShaded;
                 }
                 if (ImGui::IsItemHovered())
                 {
                     ImGui::SetTooltip("%s", g_windowShaded
-                        ? "Restore this window to its previous size."
-                        : "Collapse this window down to just the title bar.");
+                        ? "Show the full GUI again."
+                        : "Collapse the GUI down to just the title bar.");
+                }
+
+                // Time change running: say so, and say why a close attempt did nothing (bright for 4s after one).
+                if (MenuStatus::TimeBusy())
+                {
+                    ImGui::SameLine();
+                    const bool justBlocked = g_closeBlockedAt != 0 && (GetTickCount64() - g_closeBlockedAt) < 4000;
+                    ImGui::TextColored(justBlocked ? ImVec4(1.0f, 0.35f, 0.35f, 1.0f) : ImVec4(1.0f, 0.85f, 0.3f, 1.0f),
+                                       justBlocked ? "Can't close yet - time change running" : "Time change running...");
+                }
+
+                // GUI scale dropdown, top right alongside Shade (see g_uiScale's comment).
+                {
+                    static int s_scaleIdx = -1;
+                    if (s_scaleIdx < 0)
+                    {
+                        s_scaleIdx = 1;
+                        for (int i = 0; i < 5; ++i)
+                        {
+                            if (kUiScaleValues[i] == g_uiScale) s_scaleIdx = i;
+                        }
+                    }
+                    constexpr float kScaleComboW = 72.0f;
+                    // "GUI Scale" label to the left of the dropdown (2026-09-29, RedFalcon: clarity for
+                    // end users). Vertically aligned to the combo's frame padding.
+                    const float labelW = ImGui::CalcTextSize("GUI Scale").x;
+                    const float comboX = ImGui::GetWindowWidth() - kScaleComboW - ImGui::GetStyle().WindowPadding.x;
+                    ImGui::SameLine();
+                    ImGui::SetCursorPosX(comboX - labelW - ImGui::GetStyle().ItemSpacing.x);
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted("GUI Scale");
+                    ImGui::SameLine();
+                    ImGui::SetCursorPosX(comboX);
+                    ImGui::SetNextItemWidth(kScaleComboW);
+                    if (ImGui::BeginCombo("##ui_scale", kUiScaleLabels[s_scaleIdx]))
+                    {
+                        for (int i = 0; i < 5; ++i)
+                        {
+                            if (ImGui::Selectable(kUiScaleLabels[i], i == s_scaleIdx) && kUiScaleValues[i] != g_uiScale)
+                            {
+                                ApplyWindowScale(hwnd, kUiScaleValues[i], g_windowShaded);
+                                g_uiScale = kUiScaleValues[i];
+                                s_scaleIdx = i;
+                                SaveUiScale();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("GUI size -- scales the window and everything in it.");
+                    }
                 }
 
                 // Four top-level tabs: Tools (the original spawn tree + move panel content), Custom
@@ -637,6 +865,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                     if (ImGui::BeginTabItem("Target List", nullptr, targetListTabFlags))
                     {
                         TargetListMenu::Draw();
+                        ImGui::EndTabItem();
+                    }
+                    // "Signs" (2026-09-29, RedFalcon: put text on a sign instead of its picture).
+                    // No function-key shortcut -- F1-F10 are all spoken for; the tab is reached by
+                    // clicking it, and the in-game Delete key selects a sign from Lua's side.
+                    if (ImGui::BeginTabItem("Text", nullptr, signsTabFlags))
+                    {
+                        SignMenu::Draw();
                         ImGui::EndTabItem();
                     }
                     // 2026-09-23, RedFalcon asked to right-align these two -- tried
