@@ -42,6 +42,7 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         // flush).
         auto queueAction(const char* name) -> void { queueLine(std::string("ACTION:") + name); }
         auto queuePrecision(float scale) -> void { queueLine("PRECISION:" + std::to_string(scale)); }
+        auto queueScaleSet(float scale) -> void { queueLine("SCALE_SET:" + std::to_string(scale)); }
 
         auto HoverTooltip(const char* text) -> void
         {
@@ -387,7 +388,7 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             // reusing the same "wide3 - GetCursorPosX()" trick the Precision slider below already
             // uses to make the trailing readout reach the same right edge as every other full-width
             // row in this panel, rather than a fixed width.
-            const bool scaleEnabled = hasTarget && MenuStatus::TargetIsDecor();
+            const bool scaleEnabled = hasTarget;
             ImGui::BeginDisabled(!scaleEnabled);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted("Object Scale");
@@ -400,17 +401,22 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             repeatButton("-##object_scale_down", "SCALE_DOWN", scaleBtnW, cellH, "Decrease scale (floor 0.1)");
             ImGui::SameLine();
             {
-                char scaleBuf[32];
-                std::snprintf(scaleBuf, sizeof(scaleBuf), "%.2f", MenuStatus::TargetScale());
                 const float scaleBoxW = wide3 - ImGui::GetCursorPosX();
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyle().Colors[ImGuiCol_FrameBgHovered]);
-                ImGui::BeginChild("##object_scale_readout", ImVec2(scaleBoxW, cellH), true, ImGuiWindowFlags_NoScrollbar);
-                float textW = ImGui::CalcTextSize(scaleBuf).x;
-                ImGui::SetCursorPosX((scaleBoxW - textW) * 0.5f);
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(scaleBuf);
-                ImGui::EndChild();
-                ImGui::PopStyleColor();
+                static float s_scaleEdit = 1.0f;
+                ImGui::SetNextItemWidth(scaleBoxW);
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, (cellH - ImGui::GetTextLineHeight()) * 0.5f));
+                const bool submitted = ImGui::InputFloat("##object_scale_box", &s_scaleEdit, 0.0f, 0.0f, "%.2f",
+                                                         ImGuiInputTextFlags_EnterReturnsTrue);
+                ImGui::PopStyleVar();
+                if (submitted)
+                {
+                    if (s_scaleEdit < 0.1f) s_scaleEdit = 0.1f;
+                    queueScaleSet(s_scaleEdit);
+                }
+                else if (!ImGui::IsItemActive())
+                {
+                    s_scaleEdit = MenuStatus::TargetScale();
+                }
             }
             ImGui::EndDisabled();
         }
@@ -418,10 +424,14 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Precision: how big a step Up/Down/slide take per nudge (rotate is unaffected). This
-        // slider is the ONLY way to change it now (2026-08-24, numpad-only keybind rebuild -- the
-        // old in-game Num- precision cycle is gone, Num- is the window Open/Close key now) -- see
-        // handleMoveMenuPrecision's own comment in main.lua.
+        // Precision: how big a step Up/Down/slide/rotate/scale take per nudge. This slider is the
+        // ONLY way to change it now (2026-08-24, numpad-only keybind rebuild -- the old in-game
+        // Num- precision cycle is gone, Num- is the window Open/Close key now) -- see
+        // handleMoveMenuPrecision's own comment in main.lua. Rotation IS scaled by this too (a
+        // 2026-08-19 fix, normalized against the "1x (normal)" baseline so unscaled rs/15deg still
+        // comes out unchanged there -- see main.lua's drainMoveMenuQueue rotScale comment); the
+        // comment/tooltip here claiming otherwise was stale and corrected 2026-10-06 (RedFalcon
+        // caught it while reviewing his own written docs, which had it right).
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted("Precision");
         ImGui::SameLine();
@@ -437,7 +447,7 @@ namespace RC::LivingBaseSpawnMenu::MoveMenu
             g_precision_idx = idx;
             queuePrecision(PRECISION_SCALES[idx]);
         }
-        HoverTooltip("How far Up/Down/slide move per nudge (doesn't affect rotate)");
+        HoverTooltip("How far Up/Down/slide/rotate/scale move per nudge");
 
         ImGui::Spacing();
         ImGui::Separator();

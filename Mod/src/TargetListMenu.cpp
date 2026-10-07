@@ -26,6 +26,8 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
             std::string label;
             float distM{};
             std::string category;
+            bool canTarget{true};
+            bool canDelete{false};
         };
 
         std::vector<ResultRow> g_results;
@@ -36,6 +38,13 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
         bool g_wantMonsterous = true;
         bool g_wantAnimals = true;
         bool g_wantDecor = true;
+
+        // 2026-10-06 additions (RedFalcon: "detection and targeting of populated signs/labels of build
+        // menu items (Del key only) and all Placed signs (+ and Del Key). Also ... a lights category") --
+        // see Spawner.ScanTargetList's own header comment (spawner.lua) for what each means Lua-side.
+        bool g_wantBuildSigns = true;
+        bool g_wantPlacedSigns = true;
+        bool g_wantLights = true;
 
         // Scan Radius dropdown -- fixed 5-step list in meters, default 10m (RedFalcon's own spec:
         // "3, 5, 8, 10, 15 with default set to 10"). Converted to Unreal Units on the LUA side
@@ -75,13 +84,24 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
                  << ":" << (g_wantPeople ? 1 : 0)
                  << ":" << (g_wantMonsterous ? 1 : 0)
                  << ":" << (g_wantAnimals ? 1 : 0)
-                 << ":" << (g_wantDecor ? 1 : 0);
+                 << ":" << (g_wantDecor ? 1 : 0)
+                 << ":" << (g_wantBuildSigns ? 1 : 0)
+                 << ":" << (g_wantPlacedSigns ? 1 : 0)
+                 << ":" << (g_wantLights ? 1 : 0);
             writeRequest(line.str());
         }
 
         auto requestTarget(int index) -> void
         {
             writeRequest("TARGET:" + std::to_string(index));
+        }
+
+        // "Del" button on a Signs/Labels row -- mirrors the physical Delete key (select for editing on
+        // the Signs tab), not an actual destructive delete. See Spawner.TargetListSignSelect's own
+        // header comment (spawner.lua) for why this is deterministic rather than the key's own toggle.
+        auto requestSignSelect(int index) -> void
+        {
+            writeRequest("SIGNTARGET:" + std::to_string(index));
         }
 
         auto requestMark(bool on) -> void
@@ -154,7 +174,7 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
                 {
                     continue;
                 }
-                // "<label>|<distMeters>|<category>"
+                // "<label>|<distMeters>|<category>|<canTarget 0/1>|<canDelete 0/1>"
                 std::string payload = line.substr(eq + 1);
                 auto p1 = payload.find('|');
                 if (p1 == std::string::npos)
@@ -166,10 +186,25 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
                 {
                     continue;
                 }
+                auto p3 = payload.find('|', p2 + 1);
+                auto p4 = (p3 == std::string::npos) ? std::string::npos : payload.find('|', p3 + 1);
                 ResultRow row;
                 row.label = payload.substr(0, p1);
                 row.distM = std::strtof(payload.substr(p1 + 1, p2 - p1 - 1).c_str(), nullptr);
-                row.category = payload.substr(p2 + 1);
+                if (p3 == std::string::npos)
+                {
+                    // Older/short payload with no flags -- default to the original "+ only" behaviour.
+                    row.category = payload.substr(p2 + 1);
+                }
+                else
+                {
+                    row.category = payload.substr(p2 + 1, p3 - p2 - 1);
+                    row.canTarget = payload.substr(p3 + 1, (p4 == std::string::npos ? std::string::npos : p4 - p3 - 1)) != "0";
+                    if (p4 != std::string::npos)
+                    {
+                        row.canDelete = payload.substr(p4 + 1) == "1";
+                    }
+                }
                 parsed.push_back(std::move(row));
             }
             g_results = std::move(parsed);
@@ -199,12 +234,24 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
             {
                 const ResultRow& row = g_results[i];
                 ImGui::PushID(i);
-                if (ImGui::SmallButton("+"))
+                if (row.canTarget)
                 {
-                    requestTarget(i);
+                    if (ImGui::SmallButton("+"))
+                    {
+                        requestTarget(i);
+                    }
+                    HoverTooltip("Target-lock this actor");
+                    ImGui::SameLine();
                 }
-                HoverTooltip("Target-lock this actor");
-                ImGui::SameLine();
+                if (row.canDelete)
+                {
+                    if (ImGui::SmallButton("Del"))
+                    {
+                        requestSignSelect(i);
+                    }
+                    HoverTooltip("Select this sign on the Signs tab (same as aiming at it and pressing Delete).");
+                    ImGui::SameLine();
+                }
                 ImGui::Text("%s -- %.1fm (%s)", row.label.c_str(), row.distM, row.category.c_str());
                 ImGui::PopID();
             }
@@ -243,6 +290,11 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
             ImGui::Checkbox("Monsterous", &g_wantMonsterous);
             ImGui::Checkbox("Animals", &g_wantAnimals);
             ImGui::Checkbox("Decor", &g_wantDecor);
+            ImGui::Checkbox("Lights", &g_wantLights);
+            ImGui::Checkbox("Build Signs/Labels", &g_wantBuildSigns);
+            HoverTooltip("Populated signs/labels placed via the build menu (wall plaques, etc). Del only -- this mod doesn't own/move those pieces.");
+            ImGui::Checkbox("Placed Signs", &g_wantPlacedSigns);
+            HoverTooltip("Populated signs/labels on props this mod spawned (sign post, boards, flags, containers). + and Del both work.");
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -271,7 +323,8 @@ namespace RC::LivingBaseSpawnMenu::TargetListMenu
                 ImGui::EndCombo();
             }
             ImGui::SameLine();
-            const bool noCategorySelected = !g_wantPeople && !g_wantMonsterous && !g_wantAnimals && !g_wantDecor;
+            const bool noCategorySelected = !g_wantPeople && !g_wantMonsterous && !g_wantAnimals && !g_wantDecor
+                && !g_wantLights && !g_wantBuildSigns && !g_wantPlacedSigns;
             ImGui::BeginDisabled(noCategorySelected);
             if (ImGui::Button("Scan"))
             {

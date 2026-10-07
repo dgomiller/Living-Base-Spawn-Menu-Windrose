@@ -1373,20 +1373,24 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
                 row.lastWrittenColor = row.selectedColor;
                 WriteHairColorRequest(row.categoryKey, row.selectedColor);
             }
-            // Red "X" (2026-09-14) -- replaces the old in-dropdown "(Remove)" entry (Hairs/Eyebrows/
-            // Beard/Mustache/Whiskers only, never "Sets" -- same reasoning "Sets" never had one:
-            // it's a multi-slot convenience applier, not a real slot of its own). Not offered for
-            // "Sets" -- categoryKey check below skips drawing it entirely for that row.
-            if (std::strcmp(row.categoryKey, "Sets") != 0)
+            // Red "X" (2026-09-14) -- replaces the old in-dropdown "(Remove)" entry. "Sets" gets one
+            // too (2026-10-06, RedFalcon: "Sets does not have an X button. it should have one that
+            // clears all facial hair" -- it was skipped originally on the reasoning that Sets is a
+            // multi-slot convenience applier rather than a real slot of its own, but that left this
+            // row SHORTER than every other row in the section, which is what was throwing Mustache's
+            // label off-center on the line below it: that row shares its line via a bare SameLine()
+            // off Sets' own end-of-row cursor, not an absolute column, so Sets missing a widget here
+            // shifted everything after it. Sends the same "(Remove)" wire string every other row
+            // already sends; Spawner.ApplyHairCategoryMesh special-cases categoryKey=="Sets" to clear
+            // Beard+Mustache+Whiskers together instead of trying (and failing) to resolve "Sets" as a
+            // real slot name.
+            ImGui::SameLine();
+            if (RemoveXButton("##hair_remove"))
             {
-                ImGui::SameLine();
-                if (RemoveXButton("##hair_remove"))
-                {
-                    row.selectedName = -1;
-                    WriteHairMeshRequest(row.categoryKey, "(Remove)");
-                }
-                HoverTooltip("Remove");
+                row.selectedName = -1;
+                WriteHairMeshRequest(row.categoryKey, "(Remove)");
             }
+            HoverTooltip(std::strcmp(row.categoryKey, "Sets") == 0 ? "Clear all facial hair (Beard/Mustache/Whiskers)" : "Remove");
             ImGui::EndDisabled(); // !row.available
             ImGui::PopID();
         }
@@ -3514,6 +3518,14 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         f << slot << ":" << (on ? "1" : "0") << "\n";
     }
 
+    constexpr const char* LIGHT_SELECT_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_light_select_request.txt";
+    auto WriteLightSelectRequest(int slot) -> void
+    {
+        std::ofstream f(LIGHT_SELECT_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << slot << "\n";
+    }
+
     constexpr const char* LIGHT_COLOR_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_light_color_request.txt";
     auto WriteLightColorRequest(int slot, int r, int g, int b) -> void
     {
@@ -3576,6 +3588,14 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         {
             ImGui::PushID(i);
             ImGui::Text("Light %d:", i + 1);
+            ImGui::SameLine(avail - ImGui::CalcTextSize("Select").x - ImGui::GetStyle().FramePadding.x * 2.0f);
+            ImGui::BeginDisabled(!g_lightActive[i]);
+            if (ImGui::SmallButton("Select"))
+            {
+                WriteLightSelectRequest(i + 1);
+            }
+            ImGui::EndDisabled();
+            HoverTooltip("Target this light as if you pressed Num +. Needs the light enabled.");
 
             // Row: Enable / Color / Show Spill Shield (2026-09-23, RedFalcon: "squeeze the top line
             // tighter and the spill shield text gets cut off. its end should align with the edge of
@@ -4637,6 +4657,18 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         ImGui::SameLine(bodyStartX + kBodyLabelColW);
         ImGui::SetNextItemWidth(kBodySwatchW);
         if (ImGui::SliderFloat("##height", &g_heightFeet, 3.0f, 8.0f, "%.2f ft"))
+        {
+            WriteHeightRequest(g_heightFeet);
+        }
+        // Typed height may go outside the slider's 3-8 ft range; floored at 0.5 ft so a zero or
+        // negative entry can't produce a zero scale.
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(78.0f);
+        if (ImGui::InputFloat("##heightbox", &g_heightFeet, 0.0f, 0.0f, "%.2f"))
+        {
+            if (g_heightFeet < 0.5f) g_heightFeet = 0.5f;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit())
         {
             WriteHeightRequest(g_heightFeet);
         }

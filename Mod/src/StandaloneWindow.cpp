@@ -36,10 +36,10 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
         // below -- keep both in sync with each other AND with LivingBase/mod.txt's own version
         // number (2026-08-24, RedFalcon's request) -- this companion mod doesn't track a separate
         // version of its own, it ships alongside LivingBase.
-        constexpr const wchar_t* WINDOW_TITLE_W = L"Living Base Enhanced - v3.0.5";
+        constexpr const wchar_t* WINDOW_TITLE_W = L"Living Base Enhanced - v3.0.6";
         // "###LivingBaseMain" = a fixed ImGui window ID (2026-10-01): the text before it is what is shown, but the saved position/size no longer resets
         // every time the version in the title changes. (The native Win32 title above has no ### part.)
-        constexpr const char* WINDOW_TITLE = "Living Base Enhanced - v3.0.5###LivingBaseMain";
+        constexpr const char* WINDOW_TITLE = "Living Base Enhanced - v3.0.6###LivingBaseMain";
 
         std::thread g_thread;
         std::atomic_bool g_stop_requested{};
@@ -562,27 +562,27 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // Despawn (F2/F3/F4) and Tools (F5) -- F9 stays permanently avoided (see the Tools
                 // comment above for why).
                 const ImGuiTabItemFlags customTabFlags =
-                        ImGui::IsKeyPressed(ImGuiKey_F6, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                        ImGui::IsKeyPressed(ImGuiKey_F7, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 const ImGuiTabItemFlags instructionsTabFlags =
                         ImGui::IsKeyPressed(ImGuiKey_F1, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 const ImGuiTabItemFlags historyTabFlags =
-                        ImGui::IsKeyPressed(ImGuiKey_F10, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                        ImGui::IsKeyPressed(ImGuiKey_F11, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 // F7 (2026-09-21, new "Photo Mode" tab: Camera + Lights) -- F7/F8 were retired from
                 // their old grab-target/free-build meanings by the 2026-08-24 numpad rebuild (see
                 // config.lua's own "was F7"/"was F8" comments), so both are genuinely free; F12 is
                 // Steam's own screenshot hotkey (config.lua's own comment) and stays avoided.
                 const ImGuiTabItemFlags photoModeTabFlags =
-                        ImGui::IsKeyPressed(ImGuiKey_F7, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                        ImGui::IsKeyPressed(ImGuiKey_F10, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 // F8 (2026-09-26, new "Target List" tab) -- next free function key after Photo
                 // Mode's F7; F9 stays permanently avoided (see the Tools comment above for why),
                 // F11/F12 are the OS/Steam's own screenshot hotkeys.
                 const ImGuiTabItemFlags targetListTabFlags =
-                        ImGui::IsKeyPressed(ImGuiKey_F8, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                        ImGui::IsKeyPressed(ImGuiKey_F6, false) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
                 // "Signs" (2026-09-29): switched to whenever the in-game Delete key is pressed -- Lua
                 // bumps SIGN_TAB_SEQ in sign_status.txt (signs.lua's Signs.KeyPressed). Must be polled
                 // here, every frame, since SignMenu::Draw only runs while its own tab is active.
                 const ImGuiTabItemFlags signsTabFlags =
-                        SignMenu::ConsumeTabRequest() ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                        (SignMenu::ConsumeTabRequest() | ImGui::IsKeyPressed(ImGuiKey_F8, false)) ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
 
                 // Pin the ImGui content window to exactly fill the native OS window's client area,
                 // with none of ImGui's own title bar/resize border/drag handling -- the native
@@ -733,7 +733,7 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                     // has ImGuiWindowFlags_NoSavedSettings set (see kRootWindowFlags above), so
                     // there's no .ini-persisted tab state keyed by the old label to worry about --
                     // a plain rename is safe.
-                    if (ImGui::BeginTabItem("Spawn and Move", nullptr, toolsTabFlags))
+                    if (ImGui::BeginTabItem("Spawn / Move", nullptr, toolsTabFlags))
                     {
                         // Side-by-side layout: spawn tree on the left, held-repeat move buttons on
                         // the right -- two independent BeginChild panes, NOT ImGui's old Columns()
@@ -783,6 +783,16 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
 
                         ImGui::EndTabItem();
                     }
+                    // "Target List" (2026-09-26, RedFalcon: scan this mod's own tracked actors by
+                    // radius + category checkboxes, list nearest-first, target one directly instead
+                    // of the usual hover/probe pick). Self-contained single Draw() (unlike the
+                    // Spawn/Move tab's two-panel split, which StandaloneWindow itself lays out) --
+                    // TargetListMenu.cpp owns its own left/right BeginChild split internally.
+                    if (ImGui::BeginTabItem("Target List", nullptr, targetListTabFlags))
+                    {
+                        TargetListMenu::Draw();
+                        ImGui::EndTabItem();
+                    }
                     // Renamed from "Custom" (2026-09-23, RedFalcon's own mockup).
                     if (ImGui::BeginTabItem("Customize", nullptr, customTabFlags))
                     {
@@ -817,6 +827,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         }
                         CustomMenu::Draw();
                         ImGui::EndChild();
+                        ImGui::EndTabItem();
+                    }
+                    // "Signs" (2026-09-29, RedFalcon: put text on a sign instead of its picture).
+                    // Function-key shortcut F8 (see signsTabFlags above); the tab is also reached by
+                    // clicking it, and the in-game Delete key selects a sign from Lua's side.
+                    if (ImGui::BeginTabItem("Signs / Labels", nullptr, signsTabFlags))
+                    {
+                        SignMenu::Draw();
                         ImGui::EndTabItem();
                     }
                     // "Photo Mode" (2026-09-21, RedFalcon: "I want a new Photo Mode tab to have the
@@ -855,24 +873,6 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                         ImGui::BeginChild("##photomode_lights_col", ImVec2(photoModeLightsW, 0.0f), false);
                         CustomMenu::DrawLightsSection();
                         ImGui::EndChild();
-                        ImGui::EndTabItem();
-                    }
-                    // "Target List" (2026-09-26, RedFalcon: scan this mod's own tracked actors by
-                    // radius + category checkboxes, list nearest-first, target one directly instead
-                    // of the usual hover/probe pick). Self-contained single Draw() (unlike the
-                    // Spawn/Move tab's two-panel split, which StandaloneWindow itself lays out) --
-                    // TargetListMenu.cpp owns its own left/right BeginChild split internally.
-                    if (ImGui::BeginTabItem("Target List", nullptr, targetListTabFlags))
-                    {
-                        TargetListMenu::Draw();
-                        ImGui::EndTabItem();
-                    }
-                    // "Signs" (2026-09-29, RedFalcon: put text on a sign instead of its picture).
-                    // No function-key shortcut -- F1-F10 are all spoken for; the tab is reached by
-                    // clicking it, and the in-game Delete key selects a sign from Lua's side.
-                    if (ImGui::BeginTabItem("Text", nullptr, signsTabFlags))
-                    {
-                        SignMenu::Draw();
                         ImGui::EndTabItem();
                     }
                     // 2026-09-23, RedFalcon asked to right-align these two -- tried
