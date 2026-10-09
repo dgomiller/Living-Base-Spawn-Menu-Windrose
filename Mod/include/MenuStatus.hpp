@@ -88,6 +88,13 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TimeBusy() -> bool;
     auto TargetScale() -> float;
 
+    // HAND_SCALE_LEFT/HAND_SCALE_RIGHT (2026-10-09, the Custom tab's new Hand item Move/Rotate/
+    // Precision/Scale panel) -- the CURRENTLY HELD item's own uniform scale multiplier for that
+    // hand (Spawner._handItemOffset[hand].scale on the Lua side), 1.0 default. Unlike TargetScale
+    // above, this is NOT gated on anything being locked -- it tracks whatever's attached to each
+    // hand socket independently.
+    auto HandItemScale(bool rightHand) -> float;
+
     // TARGET_DIST_M (2026-09-26, new "Target List" tab's own "large text updating distance"
     // readout) -- live meters from the player pawn to the currently locked target, recomputed by
     // main.lua's own SAME 300ms status-publish loop every other TARGET_* field already goes

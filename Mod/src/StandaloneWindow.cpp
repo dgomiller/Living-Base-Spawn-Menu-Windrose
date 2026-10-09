@@ -36,10 +36,10 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
         // below -- keep both in sync with each other AND with LivingBase/mod.txt's own version
         // number (2026-08-24, RedFalcon's request) -- this companion mod doesn't track a separate
         // version of its own, it ships alongside LivingBase.
-        constexpr const wchar_t* WINDOW_TITLE_W = L"Living Base Enhanced - v3.0.6";
+        constexpr const wchar_t* WINDOW_TITLE_W = L"Living Base Enhanced - v3.0.7";
         // "###LivingBaseMain" = a fixed ImGui window ID (2026-10-01): the text before it is what is shown, but the saved position/size no longer resets
         // every time the version in the title changes. (The native Win32 title above has no ### part.)
-        constexpr const char* WINDOW_TITLE = "Living Base Enhanced - v3.0.6###LivingBaseMain";
+        constexpr const char* WINDOW_TITLE = "Living Base Enhanced - v3.0.7###LivingBaseMain";
 
         std::thread g_thread;
         std::atomic_bool g_stop_requested{};

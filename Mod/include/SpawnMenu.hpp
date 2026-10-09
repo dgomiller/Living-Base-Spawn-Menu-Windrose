@@ -36,15 +36,30 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         std::string label;
         std::vector<PoseNode> children;
         bool is_leaf = false;
-        int index = 0; // Config.CUSTOM_POSES[index] -- meaningless unless is_leaf
+        int index = 0; // <roster>[index] -- meaningless unless is_leaf
+        // `roster` (2026-10-08 fix): every pose used to implicitly be Config.CUSTOM_POSES, but
+        // spawnmenu_manifest.lua's Custom-*.ini loader can now generate OTHER pose rosters too
+        // (CUSTOMFILE_<file>_POSE) living in the same "Custom > Poses" tree. Without this field,
+        // ApplyPoseByIndex had no way to know which roster a given leaf actually came from, and
+        // hardcoding "CUSTOM_POSES" meant every custom pose applied the wrong (built-in) pose at
+        // whatever index happened to match. Meaningless unless is_leaf.
+        std::string roster;
     };
 
     // Root of the Poses subtree. Empty children if spawn_menu.ini has no Poses branch (yet).
     auto GetPosesTree() -> const PoseNode&;
 
-    // Applies Config.CUSTOM_POSES[index]'s animation to whatever's currently target-locked -- the
-    // exact same "REPLACE:CUSTOM_POSES:index" request a Tools-tab tree click on a Poses leaf would
-    // write, factored out so CustomMenu.cpp's own per-leaf "+" buttons (and its pose-reset "X")
-    // can fire it directly without duplicating this file's private write_request/REQUEST_PATH.
-    auto ApplyPoseByIndex(int index) -> void;
+    // Same idea, "Custom > Hand" (2026-10-08, RedFalcon: collapse the Left/Right Hand item
+    // dropdowns into one tree with "+" leaves, same UX as Poses). A leaf's own `label` IS the
+    // friendlyName Spawner.ApplySocketItemManual resolves by -- `index`/`roster` are unused here,
+    // CustomMenu.cpp's "+" button writes a HANDITEM request with the leaf's label directly.
+    auto GetHandItemsTree() -> const PoseNode&;
+
+    // Applies <roster>[index]'s animation to whatever's currently target-locked -- the exact same
+    // "REPLACE:<roster>:index" request a Tools-tab tree click on a Poses leaf would write,
+    // factored out so CustomMenu.cpp's own per-leaf "+" buttons (and its pose-reset "X") can fire
+    // it directly without duplicating this file's private write_request/REQUEST_PATH. `roster` is
+    // REQUIRED now (2026-10-08) -- always pass the PoseNode's own `roster` field, never a literal
+    // "CUSTOM_POSES", or a custom pose will silently apply the wrong animation again.
+    auto ApplyPoseByIndex(const std::string& roster, int index) -> void;
 } // namespace RC::LivingBaseSpawnMenu::SpawnMenu

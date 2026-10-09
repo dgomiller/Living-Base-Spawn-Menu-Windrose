@@ -654,13 +654,27 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         // between here and DrawPosesAndActions' own section further down. g_currentPoseName
         // defaults to "Unknown", the same fallback a target with no readable pose gets.
         std::string g_currentPoseName = "Unknown";
-        // g_handCategorySelected[hand][category] (2026-09-21, replaces the old single
-        // g_leftHandSelected/g_rightHandSelected now that real item lists exist) -- hand: 0=Left,
-        // 1=Right; category: matches kHandCategoryRows' own order (Weapons/Tools/Bottles/Other).
-        // -1 == nothing picked in that ONE category's dropdown -- since a hand can only ever hold
-        // one item, picking anything in ANY of the 4 category dropdowns for a hand clears the
-        // other 3 for that same hand (see DrawPosesAndActions' own hand-row loop).
-        int g_handCategorySelected[2][4] = { { -1, -1, -1, -1 }, { -1, -1, -1, -1 } };
+        // g_currentHandItemName[hand] (2026-10-08, replaces the old 4-category-dropdown-per-hand
+        // g_handCategorySelected[][] now that Hand items are a single SpawnMenu::GetHandItemsTree()
+        // tree, same shape/readout convention as g_currentPoseName just above) -- hand: 0=Left,
+        // 1=Right. "None" == nothing currently on that hand's socket.
+        std::string g_currentHandItemName[2] = { "None", "None" };
+        // Which hand a tree "+" click applies to (2026-10-08, RedFalcon: "make the Left and Right
+        // hand labels... radio buttons exclusive to each other") -- 0=Left, 1=Right. The X buttons
+        // stay per-hand and independent of this (RedFalcon: "you may want to clear the other [hand]
+        // and it may be more convenient" than switching the radio first).
+        int g_selectedHand = 0;
+
+        // Hand item transform panel (2026-10-09, RedFalcon: "add move and rotate controls for the
+        // handheld pose items... full fledged gui... make it expandable like the other Gui Areas,
+        // but only when pose is already expanded") -- precision is purely local to this panel
+        // (same "Lua doesn't need to know this at all" reasoning CAM_PRECISION_SCALES above
+        // already uses), baked into the step size sent per click rather than a separate command.
+        constexpr const char* kHandPrecisionLabels[6] = {"1/8", "1/4", "1/2", "1x (normal)", "2x", "4x"};
+        constexpr float kHandPrecisionScales[6] = {0.125f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f};
+        int g_handPrecisionIdx = 3;
+        constexpr float kHandMoveStepUU = 1.0f;
+        constexpr float kHandRotateStepDeg = 1.0f;
 
         // "Height" slider state (2026-09-18, RedFalcon's height-slider idea, 3ft-8ft range) --
         // declared here for the same forward-declaration reason as the blocks above:
@@ -1092,58 +1106,13 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         constexpr const char* kFrogNames[] = { "Frog 1", "Frog 3", "Frog 4" };
         constexpr const char* kSetNames[] = { "Set 1", "Set 3", "Set 4" };
 
-        // Left/Right Hand item lists (2026-09-21, RedFalcon: "populate the hand dropdowns... 4
-        // dropdowns, they all override each other, its just to reduce the list as its a lot of
-        // stuff and may eventually grow") -- Other\SocketItems.xlsx's "Tools" tab (Config.
-        // SOCKETITEMS_TOOLS, config.lua), split by its own Type column into exactly these 4 groups.
-        // Declared here (not down by kSocketItemFriendlyNames etc.) for the SAME forward-declaration
-        // reason as kBeltNames just above: pollReadCurrentResult's own "HANDITEM:" parsing needs
-        // these and sits between here and DrawPosesAndActions' own section further down. Sorted
-        // alphabetically within each list; re-run gen_socketitems_lua.py's own Tools-tab output and
-        // re-diff these 4 arrays whenever SocketItems.xlsx's Tools tab changes.
-        constexpr const char* kHandWeaponNames[] = {
-            "Axe - Copper", "Axe - Corrupted", "Axe - Iron", "Axe - Stone", "Blunderbuss",
-            "Blunderbuss - Dragon's Breath", "Blunderbuss - Reliable", "Club", "Club - Boatwain",
-            "Club - Corrupted", "Club - Forceful", "Club - Stunning", "Club - Tremor", "Greatsword",
-            "Greatsword - Parrying", "Greatsword - Reliable", "Greatsword - Savage",
-            "Greatsword - Slicer", "Greatsword - Soul Drinker", "Greatsword - Wicked", "Halberd",
-            "Halberd - Chipped", "Halberd - Corrupted", "Halberd - Executioner",
-            "Halberd - Reliable", "Large Knife", "Macuahuitl", "Musket", "Musket - Infantry",
-            "Musket - Reliable", "Musket - Sniper", "Pistol", "Pistol - Corrupted",
-            "Pistol - Drake's Doom", "Pistol - Reliable", "Pistol - Rusty", "Pistol - Shabby",
-            "Pistol - Worn", "Rapier", "Rapier - Bleeding", "Rapier - Bleeding Advanced",
-            "Rapier - Eviserate", "Rapier - Loyal", "Rapier - Relentless", "Rapier - Reliable",
-            "Rapier - Swift", "Saber - Baneful", "Saber - Boarding", "Saber - Broken",
-            "Saber - Corrupted", "Saber - Feral", "Saber - Filigree", "Saber - Fish",
-            "Saber - Flawless", "Saber - Forged", "Saber - Graceful", "Saber - No Filigree",
-            "Saber - Parrying", "Saber - Relentless", "Saber - Reliable", "Saber - Resolute",
-            "Saber - Restless", "Saber - Rusty", "Saber - Savage", "Saber - Severe",
-            "Saber - Thorn", "Saber - Vengeful", "Spear",
-        };
-        constexpr const char* kHandToolNames[] = {
-            "Cleaver", "Fishing Rod", "Hammer - Steel", "Hammer - Wooden", "Hand Saw",
-            "Kitchen Knife", "Pickaxe - Copper", "Pickaxe - Corrupted", "Pickaxe - Iron",
-            "Pickaxe - Stone", "Shovel",
-        };
-        constexpr const char* kHandBottleNames[] = {
-            "Bulbous Bottle", "Clay Bottle", "Faceted Bottle", "Fire Damage Potion",
-            "Flat Bottomed Bottle", "Greater Healing Potion", "Healing Potion",
-            "Large Faceted Bottle", "Lesser Healing Potion", "Rum Bottle", "Vial Bottle",
-        };
-        constexpr const char* kHandOtherNames[] = {
-            "Coconut", "Gem Stone", "Shackles",
-        };
-        // The 4 dropdown rows, in display order -- `label` doubles as both the row's own heading
-        // AND the combo's default-closed text (RedFalcon: "the name of the category is the default
-        // when nothing is selected"), matching DrawBeltAccessoryCombo's own `defaultLabel` param.
-        struct HandCategoryRow { const char* label; const char* const* names; int nameCount; };
-        constexpr HandCategoryRow kHandCategoryRows[] = {
-            { "Weapons", kHandWeaponNames, static_cast<int>(std::size(kHandWeaponNames)) },
-            { "Tools",   kHandToolNames,   static_cast<int>(std::size(kHandToolNames)) },
-            { "Bottles", kHandBottleNames, static_cast<int>(std::size(kHandBottleNames)) },
-            { "Other",   kHandOtherNames,  static_cast<int>(std::size(kHandOtherNames)) },
-        };
-        constexpr int kHandCategoryCount = static_cast<int>(std::size(kHandCategoryRows));
+        // Left/Right Hand items (2026-10-08 rework): the old 4 hardcoded dropdown-array constants
+        // (Weapons/Tools/Bottles/Other, copy-pasted from Config.SOCKETITEMS_TOOLS and needing manual
+        // re-sync whenever SocketItems.xlsx changed) are GONE -- the tree now comes straight from
+        // SpawnMenu::GetHandItemsTree() (spawn_menu.ini's own "Custom > Hand > <category>" branch,
+        // generated by spawnmenu_manifest.lua from that same Config table, Custom-*.ini additions
+        // included), same data source, zero C++ duplication. See DrawPosesAndActions' own Hand
+        // section further down for the actual tree+radio-button UI.
 
         // "Belt and Straps Location Guide" reference image (2026-09-16, RedFalcon supplied the real
         // BeltandStrapsGuide.png) -- same relative-path convention BarbieMenu.cpp's SWATCH_DIR uses
@@ -1717,14 +1686,11 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             g_strapAvailable = false;
             g_frogAvailable = false;
             // Poses and Actions (2026-09-16) -- same reset-then-repopulate treatment. Left/Right
-            // Hand (2026-09-21: now 4 categories each, see g_handCategorySelected's own header)
-            // revert to "nothing selected" here; a "HANDITEM:<Left|Right>:<friendlyName>" line
-            // further down repopulates whichever one is actually detected.
+            // Hand revert to "None" here; a "HANDITEM:<Left|Right>:<friendlyName>" line further
+            // down repopulates whichever one is actually detected.
             g_currentPoseName = "Unknown";
-            for (int h = 0; h < 2; ++h)
-            {
-                for (int c = 0; c < 4; ++c) { g_handCategorySelected[h][c] = -1; }
-            }
+            g_currentHandItemName[0] = "None";
+            g_currentHandItemName[1] = "None";
             // Height (2026-09-18) -- always overwritten below (HEIGHT: is always present, same
             // "textbox always shows something" convention as Pose), so this reset is defensive only
             // (a target whose read genuinely fails for some reason shouldn't keep showing a
@@ -1980,17 +1946,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
                         const int h = (hand == "Right") ? 1 : (hand == "Left") ? 0 : -1;
                         if (h >= 0)
                         {
-                            for (int c = 0; c < kHandCategoryCount; ++c)
-                            {
-                                const HandCategoryRow& row = kHandCategoryRows[c];
-                                for (int i = 0; i < row.nameCount; ++i)
-                                {
-                                    if (friendlyName == row.names[i])
-                                    {
-                                        g_handCategorySelected[h][c] = i;
-                                    }
-                                }
-                            }
+                            g_currentHandItemName[h] = friendlyName;
                         }
                     }
                     continue;
@@ -2407,10 +2363,9 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
     int g_strapSocketSelected[std::size(kStrapSocketRows)] = {};
     int g_weaponSlotSelected[4] = {};
 
-    // "Poses and Actions" section (2026-09-16) -- g_currentPoseName/g_handCategorySelected are
+    // "Poses and Actions" section (2026-09-16) -- g_currentPoseName/g_currentHandItemName are
     // declared further UP the file (alongside g_beltPieceSelected etc.), same forward-declaration
-    // reasoning: pollReadCurrentResult's own "POSE:"/"HANDITEM:" parsing needs them. kHandCategoryRows
-    // (the real item lists) are ALSO declared further up (alongside kBeltNames) for the same reason.
+    // reasoning: pollReadCurrentResult's own "POSE:"/"HANDITEM:" parsing needs them.
 
     // ResetCustomViewState() (2026-09-18, RedFalcon: "can we reset the custom view when a target
     // is unselected?") -- every dropdown/swatch/checkbox the Custom tab shows, reverted to its
@@ -2454,10 +2409,8 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         g_strapAvailable = false;
         g_frogAvailable = false;
         g_currentPoseName = "Unknown";
-        for (int h = 0; h < 2; ++h)
-        {
-            for (int c = 0; c < 4; ++c) { g_handCategorySelected[h][c] = -1; }
-        }
+        g_currentHandItemName[0] = "None";
+        g_currentHandItemName[1] = "None";
         g_beltSetSelected = -1;
         g_lanternOn = false;
         g_aiDisabled = false;
@@ -2561,6 +2514,35 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             return;
         }
         f << "SOCKETITEM:" << socket << ":" << friendlyName << "\n";
+    }
+
+    // Hand item Move/Rotate/Scale (2026-10-09, RedFalcon: "add move and rotate controls for the
+    // handheld pose items"). Reuses move_request.txt/MoveMenu.cpp's own append-mode queueLine
+    // mechanism directly (see WriteTargetLockToggleAction's own comment above for the precedent)
+    // rather than a new file+poll loop -- `hand` is "Left"/"Right", matching main.lua's
+    // Spawner.HAND_SOCKET_KEY values exactly.
+    constexpr const char* HAND_SHIFT_REQUEST_PATH = "ue4ss/Mods/LivingBase/move_request.txt";
+    auto WriteHandShiftRequest(const char* hand, const char* axis, float delta) -> void
+    {
+        std::ofstream f(HAND_SHIFT_REQUEST_PATH, std::ios::app);
+        if (!f)
+        {
+            Output::send<LogLevel::Error>(STR("[LivingBaseSpawnMenu] CustomMenu: failed to write move_request.txt (hand shift)\n"));
+            return;
+        }
+        f << "HANDSHIFT:" << hand << ":" << axis << ":" << delta << "\n";
+    }
+    auto WriteHandScaleSetRequest(const char* hand, float value) -> void
+    {
+        std::ofstream f(HAND_SHIFT_REQUEST_PATH, std::ios::app);
+        if (!f) { return; }
+        f << "HANDSCALESET:" << hand << ":" << value << "\n";
+    }
+    auto WriteHandResetRequest(const char* hand) -> void
+    {
+        std::ofstream f(HAND_SHIFT_REQUEST_PATH, std::ios::app);
+        if (!f) { return; }
+        f << "HANDRESET:" << hand << "\n";
     }
 
     // Pose scrub Play/Pause/Step/Seek (2026-09-21, RedFalcon's frame-by-frame pose scrubber
@@ -3127,16 +3109,24 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
     // "reset" X button below to look up "Regular Fem Player Idle"/"Regular Masc Player Idle"'s own
     // Config.CUSTOM_POSES index without needing a hardcoded/hand-synced copy of that index (which
     // would silently go stale if RedFalcon ever reorders Other\Poses.xlsx). Returns -1 if not found
-    // (e.g. spawn_menu.ini hasn't been generated with that row yet).
-    auto FindPoseIndexByLabel(const SpawnMenu::PoseNode& node, const char* wantLabel) -> int
+    // (e.g. spawn_menu.ini hasn't been generated with that row yet). `outRoster` is set to the
+    // matched leaf's own roster (2026-10-08 fix, see PoseNode::roster's own comment) -- these two
+    // specific labels only ever live in the built-in CUSTOM_POSES roster today, but this still
+    // reads it from the node rather than hardcoding that, consistent with the "+" button below.
+    auto FindPoseIndexByLabel(const SpawnMenu::PoseNode& node, const char* wantLabel, std::string& outRoster) -> int
     {
         if (node.is_leaf && node.children.empty())
         {
-            return (node.label == wantLabel) ? node.index : -1;
+            if (node.label != wantLabel)
+            {
+                return -1;
+            }
+            outRoster = node.roster;
+            return node.index;
         }
         for (auto& child : node.children)
         {
-            const int found = FindPoseIndexByLabel(child, wantLabel);
+            const int found = FindPoseIndexByLabel(child, wantLabel, outRoster);
             if (found >= 0)
             {
                 return found;
@@ -3155,7 +3145,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             ImGui::PushID(&node);
             if (ImGui::SmallButton("+"))
             {
-                SpawnMenu::ApplyPoseByIndex(node.index);
+                SpawnMenu::ApplyPoseByIndex(node.roster, node.index);
             }
             HoverTooltip("Apply this pose to the target");
             ImGui::SameLine();
@@ -3168,6 +3158,37 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             for (auto& child : node.children)
             {
                 DrawPoseTreeNode(child);
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    // Same shape as DrawPoseTreeNode just above, for the Hand item tree (2026-10-08, RedFalcon:
+    // "take the drop downs and make them a single tree with + like poses"). `targetSocket` is
+    // whichever hand's socket is currently radio-selected -- a leaf's own `label` IS the
+    // friendlyName Spawner.ApplySocketItemManual resolves by, so WriteSocketItemRequest needs
+    // nothing else from the node.
+    auto DrawHandItemTreeNode(const SpawnMenu::PoseNode& node, const char* targetSocket) -> void
+    {
+        if (node.is_leaf && node.children.empty())
+        {
+            ImGui::PushID(&node);
+            if (ImGui::SmallButton("+"))
+            {
+                WriteSocketItemRequest(targetSocket, node.label.c_str());
+                requestReadCurrent();
+            }
+            HoverTooltip("Apply to the selected hand");
+            ImGui::SameLine();
+            ImGui::TextUnformatted(node.label.c_str());
+            ImGui::PopID();
+            return;
+        }
+        if (ImGui::TreeNode(node.label.c_str()))
+        {
+            for (auto& child : node.children)
+            {
+                DrawHandItemTreeNode(child, targetSocket);
             }
             ImGui::TreePop();
         }
@@ -3233,10 +3254,11 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         if (RemoveXButton("##pose_reset"))
         {
             const bool isFemale = (MenuStatus::TargetSex() == "F");
-            const int idx = FindPoseIndexByLabel(posesRoot, isFemale ? "Regular Fem Player Idle" : "Regular Masc Player Idle");
+            std::string foundRoster;
+            const int idx = FindPoseIndexByLabel(posesRoot, isFemale ? "Regular Fem Player Idle" : "Regular Masc Player Idle", foundRoster);
             if (idx >= 0)
             {
-                SpawnMenu::ApplyPoseByIndex(idx);
+                SpawnMenu::ApplyPoseByIndex(foundRoster, idx);
                 requestReadCurrent();
             }
         }
@@ -3306,24 +3328,21 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
 
         ImGui::Spacing();
 
-        // Left Hand / Right Hand -- side by side (2026-09-16, RedFalcon: "i want left hand and
-        // right hand on the same line next to each other"), each its own label+X row followed by
-        // 4 category dropdowns (2026-09-21: Weapons/Tools/Bottles/Other, RedFalcon: "populate the
-        // hand dropdowns... 4 dropdowns, they all override each other, its just to reduce the list
-        // as its a lot of stuff and may eventually grow" -- replaces the old single always-empty
-        // combo). Same two-pass layout DrawBeltsAndStraps' own Belt/Sling/Strap/Frog columns use
-        // (`i * kColW`, 0-based here since it's this child's own coordinate frame). The X
-        // (RedFalcon: "the X for left hand will clear socket ik_weapon_lSocket and the X for right
-        // hand will clear ik_weapon_rSocket") reuses the EXISTING per-socket "None" pipeline the
-        // Accessories grid's own dropdowns already use (WriteSocketItemRequest ->
-        // BeltStrapPolls.socketItem -> Spawner.ApplySocketItemManual, whose "None" branch already
-        // calls Spawner.RemoveSocketAttachment) rather than inventing a new request file -- these
-        // are real IK weapon-attach sockets, not a new mechanism.
+        // Left Hand / Right Hand (2026-10-08 rework, RedFalcon: "make the Left and Right hand
+        // labels and make them radio buttons exclusive to each other... keep the X for clearing...
+        // take the drop downs and make them a single tree with + like poses... clicking + will
+        // populate the hand selected in the radio button"). One radio pair picks which hand a tree
+        // "+" click applies to; the X buttons stay per-hand and INDEPENDENT of the radio selection
+        // (RedFalcon: "after selecting on[e] you may want to clear the other and it may be more
+        // convenient" than switching the radio first) -- same per-socket "None" pipeline as before
+        // (WriteSocketItemRequest -> BeltStrapPolls.socketItem -> Spawner.ApplySocketItemManual).
+        // The tree itself comes from SpawnMenu::GetHandItemsTree() ("Custom > Hand > <category>" in
+        // spawn_menu.ini, generated from Config.SOCKETITEMS_TOOLS -- Custom-*.ini `type = handitem`
+        // rows included) instead of the 4 hardcoded dropdown arrays this replaced.
         {
             const char* const kHandLabels[2] = { "Left Hand", "Right Hand" };
             const char* const kHandSockets[2] = { "ik_weapon_lSocket", "ik_weapon_rSocket" };
             const float kHandColW = innerW / 2.0f;
-            const float kHandComboW = kHandColW - kGap;
 
             for (int i = 0; i < 2; ++i)
             {
@@ -3332,12 +3351,15 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
                     ImGui::SameLine(i * kHandColW);
                 }
                 ImGui::PushID(i);
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextUnformatted(kHandLabels[i]);
-                ImGui::SameLine(i * kHandColW + kHandComboW - kXBtnW);
+                if (ImGui::RadioButton(kHandLabels[i], g_selectedHand == i))
+                {
+                    g_selectedHand = i;
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%s)", g_currentHandItemName[i].c_str());
+                ImGui::SameLine(i * kHandColW + kHandColW - kXBtnW);
                 if (RemoveXButton("##hand_remove"))
                 {
-                    for (int c = 0; c < kHandCategoryCount; ++c) { g_handCategorySelected[i][c] = -1; }
                     WriteSocketItemRequest(kHandSockets[i], "None");
                     requestReadCurrent();
                 }
@@ -3345,47 +3367,178 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
                 ImGui::PopID();
             }
 
-            // 4 mutually-exclusive category dropdowns per hand -- only one item can ever occupy a
-            // hand at a time, so picking something in ONE dropdown clears the other 3 for that
-            // same hand (RedFalcon: "they all override each other") and applies the pick;
-            // "None" (DrawBeltAccessoryCombo signals this via selectedIdx going back to -1) clears
-            // the whole hand, same as the X button just above -- "selecting none, clears that hand
-            // and resets the name" (each combo's own closed-state text is its category name,
-            // DrawBeltAccessoryCombo's `defaultLabel` param, matching the belt-socket convention).
-            for (int c = 0; c < kHandCategoryCount; ++c)
+            ImGui::Spacing();
+            // Fill whatever vertical space is LEFT in this column (not a flat kTreeHeight, which
+            // overshot past the Poses tree's own bottom -- RedFalcon: "can you make the bottom of
+            // the tree align with the pose one?"). GetContentRegionAvail().y is already bounded by
+            // the enclosing "##poses_right" child's fixed kTreeHeight, so this naturally bottoms out
+            // exactly where the Poses tree does, regardless of how tall the radio/X rows above are.
+            const float handTreeHeight = ImGui::GetContentRegionAvail().y;
+            ImGui::BeginChild("##handitem_tree", ImVec2(0.0f, handTreeHeight), true);
+            const SpawnMenu::PoseNode& handRoot = SpawnMenu::GetHandItemsTree();
+            if (handRoot.children.empty())
             {
-                const HandCategoryRow& row = kHandCategoryRows[c];
-                for (int i = 0; i < 2; ++i)
+                ImGui::TextDisabled("(no hand items -- check spawn_menu.ini and the Tools tab's Refresh)");
+            }
+            else
+            {
+                for (auto& child : handRoot.children)
                 {
-                    if (i > 0)
-                    {
-                        ImGui::SameLine(i * kHandColW);
-                    }
-                    ImGui::PushID(i * 10 + c);
-                    const bool changed = DrawBeltAccessoryCombo(
-                        "hand_combo", row.label, g_handCategorySelected[i][c], row.names, row.nameCount, kHandComboW);
-                    if (changed)
-                    {
-                        if (g_handCategorySelected[i][c] < 0)
-                        {
-                            for (int c2 = 0; c2 < kHandCategoryCount; ++c2) { g_handCategorySelected[i][c2] = -1; }
-                            WriteSocketItemRequest(kHandSockets[i], "None");
-                        }
-                        else
-                        {
-                            for (int c2 = 0; c2 < kHandCategoryCount; ++c2)
-                            {
-                                if (c2 != c) { g_handCategorySelected[i][c2] = -1; }
-                            }
-                            WriteSocketItemRequest(kHandSockets[i], row.names[g_handCategorySelected[i][c]]);
-                        }
-                        requestReadCurrent();
-                    }
-                    ImGui::PopID();
+                    DrawHandItemTreeNode(child, kHandSockets[g_selectedHand]);
                 }
             }
+            ImGui::EndChild();
         }
-        ImGui::EndChild();
+
+        ImGui::EndChild(); // ##poses_right -- Hand Item Transform moved BELOW both columns, see below.
+
+    // Hand item Move/Rotate/Precision/Scale (2026-10-09, RedFalcon: "add move and rotate controls
+    // for the handheld pose items... full fledged gui... make it expandable like the other Gui
+    // Areas, but only when pose is already expanded... movement controls on the left, rotate,
+    // precision and scale on the right"). Full window width (2026-10-09 follow-up, RedFalcon: "I
+    // wanted the move menu below everything, so it has the entire width of the window") -- placed
+    // AFTER both the Poses tree and the Poses-right column close, not nested inside either one, so
+    // ImGui::GetContentRegionAvail().x below naturally reflects the WHOLE window's width instead of
+    // being capped to one half-width column. Its own CollapsingHeader, nested inside "Poses and
+    // Actions" -- DrawPosesAndActions() itself only ever runs while that outer header is expanded
+    // (see its own call site), so this placement is all "only when pose is expanded" needs, no
+    // extra gating. Applies to whichever hand the radio button above currently has selected.
+    // Scale +/- go through the SAME additive HANDSHIFT path as move/rotate (Spawner.
+    // NudgeHandItemTransform's `off[axis] = off[axis] + delta` already treats "scale" as just
+    // another field) rather than reading back MenuStatus::HandItemScale to compute a new absolute
+    // value -- that status field is only refreshed every 300ms, so a held-repeat +/- computing
+    // from it would silently drop most of the held duration (the exact "last write wins" problem
+    // move_request.txt's own append queue already exists to avoid -- see queueLine's header
+    // comment). The InputFloat box is a genuine absolute set (typing an exact number), so it uses
+    // HANDSCALESET directly.
+    if (ImGui::CollapsingHeader("Hand Item Transform"))
+    {
+            const char* const kHandKeys[2] = { "Left", "Right" };
+            const char* curHand = kHandKeys[g_selectedHand];
+            const float colAvail = ImGui::GetContentRegionAvail().x;
+            const float colGap = ImGui::GetStyle().ItemSpacing.x;
+            const float colW = (colAvail - colGap) / 2.0f;
+            const float cellW3 = (colW - colGap * 2.0f) / 3.0f;
+            constexpr float cellH2 = 24.0f;
+
+            const float moveStep = kHandMoveStepUU * kHandPrecisionScales[g_handPrecisionIdx];
+            const float rotStep = kHandRotateStepDeg * kHandPrecisionScales[g_handPrecisionIdx];
+            auto shiftButton = [&](const char* label, const char* axis, float delta, float w, float h)
+            {
+                ImGui::PushButtonRepeat(true);
+                if (ImGui::Button(label, ImVec2(w, h)))
+                {
+                    WriteHandShiftRequest(curHand, axis, delta);
+                }
+                ImGui::PopButtonRepeat();
+            };
+
+            // Left column: Move (a D-pad cross, same shape as MoveMenu.cpp's own, plus Up/Down)
+            // + Precision (2026-10-09 aesthetic pass, RedFalcon: "move the down button over one
+            // so theres a space between it and up, for symmetry" + "move precision over to the
+            // move side, as it has a lot of extra space").
+            const float handPanelTopY = ImGui::GetCursorPosY();
+            const float handPanelLeftX = ImGui::GetCursorPosX();
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted("Move");
+            ImGui::Dummy(ImVec2(cellW3, cellH2));
+            ImGui::SameLine();
+            shiftButton("Fwd##hand_fwd", "fwd", moveStep, cellW3, cellH2);
+
+            shiftButton("Left##hand_left", "right", -moveStep, cellW3, cellH2);
+            ImGui::SameLine();
+            ImGui::Dummy(ImVec2(cellW3, cellH2));
+            ImGui::SameLine();
+            shiftButton("Right##hand_right", "right", moveStep, cellW3, cellH2);
+
+            ImGui::Dummy(ImVec2(cellW3, cellH2));
+            ImGui::SameLine();
+            shiftButton("Back##hand_back", "fwd", -moveStep, cellW3, cellH2);
+
+            ImGui::Spacing();
+            shiftButton("Up##hand_up", "up", moveStep, cellW3, cellH2);
+            ImGui::SameLine();
+            ImGui::Dummy(ImVec2(cellW3, cellH2));
+            ImGui::SameLine();
+            shiftButton("Down##hand_down", "up", -moveStep, cellW3, cellH2);
+
+            ImGui::Spacing();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Precision");
+            ImGui::SameLine();
+            // Label beside the slider rather than above it (2026-10-09, RedFalcon: "move the
+            // precision label to the left of the slider, that will make the height of both sides
+            // the same") -- matches the Rotate column's own row height now that Move's own extra
+            // text-only line is gone.
+            const float precLabelW = ImGui::CalcTextSize("Precision").x;
+            ImGui::SetNextItemWidth(colW - precLabelW - colGap);
+            int handPrecIdx = g_handPrecisionIdx;
+            if (ImGui::SliderInt("##hand_precision", &handPrecIdx, 0, 5, kHandPrecisionLabels[handPrecIdx]))
+            {
+                g_handPrecisionIdx = handPrecIdx;
+            }
+            ImGui::EndGroup();
+
+            // Right column: Rotate (Pitch/Yaw/Roll rows) + Scale. Explicit SetCursorPos, no SameLine
+            // (2026-10-09, RedFalcon: "Rotate has more spacing ABOVE it not below it", still visible
+            // after a SameLine()+SetCursorPosY attempt) -- SameLine() keeps this on the SAME internal
+            // "line" as Move's last row (Precision), which calls AlignTextToFramePadding() for its own
+            // label and leaves a text-baseline offset that a SameLine()-continued line inherits even
+            // across a BeginGroup -- that offset was pushing "Rotate"'s text down relative to "Move"'s,
+            // which never goes through AlignTextToFramePadding at all. Skipping SameLine() and setting
+            // BOTH cursor axes explicitly starts a genuinely fresh line with no inherited baseline.
+            ImGui::SetCursorPos(ImVec2(handPanelLeftX + colW + colGap, handPanelTopY));
+            ImGui::BeginGroup();
+            ImGui::TextUnformatted("Rotate");
+            auto axisRow = [&](const char* label, const char* axis)
+            {
+                shiftButton(("<-##hand_" + std::string(axis) + "_l").c_str(), axis, -rotStep, cellW3, cellH2);
+                ImGui::SameLine();
+                ImGui::BeginDisabled();
+                ImGui::Button(label, ImVec2(cellW3, cellH2));
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                shiftButton(("->##hand_" + std::string(axis) + "_r").c_str(), axis, rotStep, cellW3, cellH2);
+            };
+            axisRow("Pitch", "pitch");
+            axisRow("Yaw", "yaw");
+            axisRow("Roll", "roll");
+
+            ImGui::Spacing();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Scale");
+            ImGui::SameLine();
+            // Buttons shrunk to 1/3 width, textbox given the freed space (2026-10-09, RedFalcon:
+            // "shorten the scale buttons to 1/3 size and expand the text box").
+            const float scaleBtnW = cellW3 / 3.0f;
+            shiftButton("+##hand_scale_up", "scale", 0.1f * kHandPrecisionScales[g_handPrecisionIdx], scaleBtnW, cellH2);
+            ImGui::SameLine();
+            shiftButton("-##hand_scale_down", "scale", -0.1f * kHandPrecisionScales[g_handPrecisionIdx], scaleBtnW, cellH2);
+            ImGui::SameLine();
+            {
+                static float s_handScaleEdit[2] = { 1.0f, 1.0f };
+                const float labelW = ImGui::CalcTextSize("Scale").x;
+                const float scaleBoxW = colW - labelW - colGap * 3.0f - scaleBtnW * 2.0f;
+                ImGui::SetNextItemWidth(scaleBoxW);
+                const bool submitted = ImGui::InputFloat("##hand_scale_box", &s_handScaleEdit[g_selectedHand], 0.0f, 0.0f, "%.2f", ImGuiInputTextFlags_EnterReturnsTrue);
+                if (submitted)
+                {
+                    if (s_handScaleEdit[g_selectedHand] < 0.1f) { s_handScaleEdit[g_selectedHand] = 0.1f; }
+                    WriteHandScaleSetRequest(curHand, s_handScaleEdit[g_selectedHand]);
+                }
+                else if (!ImGui::IsItemActive())
+                {
+                    s_handScaleEdit[g_selectedHand] = MenuStatus::HandItemScale(g_selectedHand == 1);
+                }
+            }
+
+            ImGui::Spacing();
+            if (ImGui::Button("Reset Transform", ImVec2(colW, cellH2)))
+            {
+                WriteHandResetRequest(curHand);
+            }
+            ImGui::EndGroup();
+        }
     }
 
     // "Lights" section (2026-09-21, Photo tab mockup) -- 3 fixed light+spill-shield rigs, each a

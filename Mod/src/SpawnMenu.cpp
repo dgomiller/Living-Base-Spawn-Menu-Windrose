@@ -33,6 +33,8 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         // SpawnMenu.hpp's own PoseNode comment for why this is a separate, ImGui-agnostic copy
         // rather than exposing MenuNode/g_root directly.
         PoseNode g_posesTree;
+        // Same idea, "Custom > Hand" (2026-10-08) -- the Left/Right Hand item tree.
+        PoseNode g_handItemsTree;
 
         auto build_pose_node(const MenuNode& src) -> PoseNode
         {
@@ -40,6 +42,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             out.label = src.label;
             out.is_leaf = src.is_leaf;
             out.index = src.index;
+            out.roster = src.roster;
             out.children.reserve(src.children.size());
             for (auto& c : src.children)
             {
@@ -304,6 +307,7 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         parse_ini(buffer.str());
 
         g_posesTree = PoseNode{};
+        g_handItemsTree = PoseNode{};
         for (auto& top : g_root.children)
         {
             if (top->label != "Custom")
@@ -316,6 +320,15 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 {
                     g_posesTree = build_pose_node(*c);
                 }
+                // "Custom > Hand" (2026-10-08, RedFalcon: collapse the Left/Right Hand item
+                // dropdowns into one tree with "+" leaves, same shape as Poses) -- reuses
+                // build_pose_node/PoseNode as-is; a hand-item leaf only ever needs its own label
+                // (the friendlyName Spawner.ApplySocketItemManual resolves by), so the unused
+                // index/roster fields are harmless. See CustomMenu.cpp's own Hand section comment.
+                else if (c->label == "Hand")
+                {
+                    g_handItemsTree = build_pose_node(*c);
+                }
             }
         }
     }
@@ -325,9 +338,14 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         return g_posesTree;
     }
 
-    auto ApplyPoseByIndex(int index) -> void
+    auto GetHandItemsTree() -> const PoseNode&
     {
-        write_request("REPLACE", "CUSTOM_POSES", index);
+        return g_handItemsTree;
+    }
+
+    auto ApplyPoseByIndex(const std::string& roster, int index) -> void
+    {
+        write_request("REPLACE", roster, index);
     }
 
     auto Draw() -> void
@@ -339,6 +357,32 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
         // collapse away entirely -- see node_matches_filter()/draw_node()'s own comments.
         static char s_filterBuf[128] = "";
         static std::string s_activeFilter;
+
+        // Update button (2026-10-09, RedFalcon: "with the ability to change inis, i think we need
+        // to be able to refresh the lists again... put an Update button to the left of the filter
+        // text box" -- Custom-*.ini content can now be edited and re-pulled in mid-session, unlike
+        // when the old "Refresh" button was removed as redundant, see this Draw()'s own header
+        // comment). Writes ACTION:REFRESH_CUSTOM_INI onto the move_request.txt queue (the SAME
+        // one-shot channel every other ACTION:* button here already uses) -- main.lua's
+        // Spawner.RefreshCustomSpawnMenuContent(true) re-scans every Custom-*.ini and rewrites
+        // spawn_menu.ini's custom block on its next poll. There's no signal file telling C++ when
+        // that finished, so this just waits a short fixed delay (s_pendingReloadAt, below) before
+        // calling Reload() itself -- the same "good enough, no round-trip handshake needed for a
+        // manual button click" tolerance BODY_SWAP_RESPAWN_DELAY_MS's own comment already applies
+        // elsewhere in this bridge.
+        static double s_pendingReloadAt = -1.0;
+        constexpr float kUpdateBtnW = 60.0f;
+        if (ImGui::Button("Update", ImVec2(kUpdateBtnW, 0.0f)))
+        {
+            queue_move_action("REFRESH_CUSTOM_INI");
+            s_pendingReloadAt = ImGui::GetTime() + 0.5;
+        }
+        if (s_pendingReloadAt >= 0.0 && ImGui::GetTime() >= s_pendingReloadAt)
+        {
+            s_pendingReloadAt = -1.0;
+            Reload();
+        }
+        ImGui::SameLine();
 
         // Row sized to exactly match the tree BeginChild's own width just below (2026-09-29,
         // RedFalcon: "I'd like that whole row to be the width of the tree box") -- both sit in the

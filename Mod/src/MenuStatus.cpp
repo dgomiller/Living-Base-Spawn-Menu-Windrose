@@ -34,6 +34,8 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
         bool g_target_is_decor = false;
         bool g_time_busy = false; // TIME_BUSY: a lbphototime / Photo Mode Time change is running (window must not close)
         float g_target_scale = 1.0f;
+        float g_hand_scale_left = 1.0f;
+        float g_hand_scale_right = 1.0f;
         float g_target_dist_m = 0.0f;
         int g_window_toggle_seq = 0;
         int g_focus_steal_seq = 0;
@@ -146,6 +148,14 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
             {
                 g_target_scale = std::strtof(value.c_str(), nullptr);
             }
+            else if (key == "HAND_SCALE_LEFT")
+            {
+                g_hand_scale_left = std::strtof(value.c_str(), nullptr);
+            }
+            else if (key == "HAND_SCALE_RIGHT")
+            {
+                g_hand_scale_right = std::strtof(value.c_str(), nullptr);
+            }
             else if (key == "PLACEMENT_MODE")
             {
                 g_placement_mode = value;
@@ -197,6 +207,7 @@ namespace RC::LivingBaseSpawnMenu::MenuStatus
     auto TargetIsDecor() -> bool { return g_target_is_decor; }
     auto TimeBusy() -> bool { return g_time_busy; }
     auto TargetScale() -> float { return g_target_scale; }
+    auto HandItemScale(bool rightHand) -> float { return rightHand ? g_hand_scale_right : g_hand_scale_left; }
     auto TargetDistMeters() -> float { return g_target_dist_m; }
     auto PlacementMode() -> const std::string& { return g_placement_mode; }
     auto IsPlacementActive() -> bool { return g_placement_active; }
