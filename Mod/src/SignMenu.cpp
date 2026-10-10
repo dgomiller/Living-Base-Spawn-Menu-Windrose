@@ -25,7 +25,8 @@ namespace RC::LivingBaseSpawnMenu::SignMenu
         // "Special Items" dropdown (2026-09-29, RedFalcon): things worth spawning from the Signs tab. Index order MUST match
         // main.lua's SPAWN_MENU_SPECIAL_ITEMS. Just the Sign Post for now.
         constexpr const char* kSpecialItems[] = {"Sign Post",          "Wall Flag 1",        "Wall Flag 2", "Wall Flag 3", "Wall Flag 4",
-                                                 "Board 1 (One line)", "Board 2 (One line)", "Board 3 (One line)", "Obelisk"};
+                                                 "Board 1 (One line)", "Board 2 (One line)", "Board 3 (One line)", "Obelisk",
+                                                 "Grave Headstone (Fountain)"};
         int g_specialIdx = 0;
         constexpr const char* SPAWN_REQUEST_PATH = "ue4ss/Mods/LivingBase/spawn_request.txt";
 
