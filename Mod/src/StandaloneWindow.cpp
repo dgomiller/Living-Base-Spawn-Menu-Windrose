@@ -994,22 +994,14 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                     }
                 }
 
-                // DIAGNOSTIC (2026-10-12): heartbeat so a hang shows up as "last line was N seconds
-                // before the crash dump's own timestamp" instead of silence -- this thread's loop
-                // continuing to log proves it (not some other thread) is still alive and ticking.
+                // DIAGNOSTIC (2026-10-12): frame counter kept for the window-open/Present-failure log
+                // lines above, which reference it -- the per-2s heartbeat print that used to live here
+                // was DISABLED (2026-10-12) once the DLSS Multi Frame Generation root cause was found;
+                // it was the one piece of this diagnostic pass that logged continuously for the whole
+                // session (~1800 lines/hour) rather than only on an actual event, see
+                // WINDROSE_MODDING_NOTES.md SS42. Re-enable (uncomment) if a future investigation needs
+                // to pin down exactly when this thread last ticked relative to a crash dump again.
                 ++g_diagFrameCounter;
-                {
-                    static ULONGLONG lastHeartbeatTick = 0;
-                    const ULONGLONG nowTick = GetTickCount64();
-                    if (nowTick - lastHeartbeatTick >= 2000)
-                    {
-                        lastHeartbeatTick = nowTick;
-                        Output::send<LogLevel::Normal>(
-                                STR("[LivingBaseSpawnMenu] StandaloneWindow: heartbeat frame={} tick={} "
-                                    "visible={}\n"),
-                                g_diagFrameCounter, nowTick, IsWindowVisible(hwnd) ? 1 : 0);
-                    }
-                }
             }
 
             // Before the device itself is torn down below -- every cached SRV/texture in
