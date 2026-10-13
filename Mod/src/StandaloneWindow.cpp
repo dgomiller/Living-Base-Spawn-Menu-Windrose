@@ -44,6 +44,22 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
         std::thread g_thread;
         std::atomic_bool g_stop_requested{};
 
+        // DIAGNOSTIC (2026-10-12, RTX 50-series crash investigation) -- see the heartbeat/Present
+        // logging in ThreadMain's render loop. Not persisted, not read anywhere else.
+        unsigned long long g_diagFrameCounter = 0;
+
+        // UNIFIED VISIBILITY COOLDOWN (2026-10-12) -- see ThreadMain's two ShowWindow call sites
+        // ('-' via the Lua toggle_seq bridge, and '-' via the direct ImGui key check). A held key
+        // re-triggers the direct check every time this window regains focus (ImGui's key state
+        // resets on focus loss, so a still-down key reads as a fresh edge-press on refocus), and a
+        // Lua-side-only debounce can't see or stop that path at all since it never goes through
+        // Lua. One shared cooldown on the actual ShowWindow calls, regardless of which trigger
+        // asked for them, is the only place that can rate-limit both. Confirmed needed live:
+        // RedFalcon's Lua debounce alone still showed open/close cycles with no preceding Lua log
+        // line at all, meaning the direct-check path was still running on its own.
+        ULONGLONG g_lastVisibilityToggleTick = 0;
+        constexpr ULONGLONG VISIBILITY_TOGGLE_COOLDOWN_MS = 400;
+
         // Whatever window had OS focus immediately before we last stole it (see the two
         // SetForegroundWindow(hwnd) call sites below) -- in practice, the game itself, since
         // stealing focus is the only way this window's content can be clicked. Read/written only
@@ -310,6 +326,11 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                                          wc.hInstance,
                                          nullptr);
 
+            // DIAGNOSTIC (2026-10-12): timestamp device creation so we can see how long after
+            // mod-load/the 15s startup delay this actually runs on a given machine.
+            Output::send<LogLevel::Normal>(
+                    STR("[LivingBaseSpawnMenu] StandaloneWindow: CreateDeviceD3D starting, tick={}\n"),
+                    GetTickCount64());
             if (!CreateDeviceD3D(hwnd))
             {
                 Output::send<LogLevel::Error>(STR("[LivingBaseSpawnMenu] StandaloneWindow: CreateDeviceD3D failed\n"));
@@ -317,6 +338,9 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 UnregisterClassW(wc.lpszClassName, wc.hInstance);
                 return;
             }
+            Output::send<LogLevel::Normal>(
+                    STR("[LivingBaseSpawnMenu] StandaloneWindow: CreateDeviceD3D OK, featureLevel={:#x}, tick={}\n"),
+                    static_cast<unsigned>(g_device->GetFeatureLevel()), GetTickCount64());
 
             // Restore the last-used GUI scale (see g_uiScale) and size the window to match.
             LoadUiScale();
@@ -469,7 +493,15 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                     if (toggle_seq != last_seen_toggle_seq)
                     {
                         last_seen_toggle_seq = toggle_seq;
-                        if (IsWindowVisible(hwnd))
+                        const ULONGLONG nowTick = GetTickCount64();
+                        if (nowTick - g_lastVisibilityToggleTick < VISIBILITY_TOGGLE_COOLDOWN_MS)
+                        {
+                            Output::send<LogLevel::Normal>(
+                                    STR("[LivingBaseSpawnMenu] StandaloneWindow: toggle_seq-triggered "
+                                        "toggle ignored -- inside cooldown, tick={}\n"),
+                                    nowTick);
+                        }
+                        else if (IsWindowVisible(hwnd))
                         {
                             if (MenuStatus::TimeBusy())
                             {
@@ -477,16 +509,27 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                             }
                             else
                             {
+                                g_lastVisibilityToggleTick = nowTick;
                                 ShowWindow(hwnd, SW_HIDE);
                             }
                         }
                         else
                         {
+                            g_lastVisibilityToggleTick = nowTick;
+                            // DIAGNOSTIC (2026-10-12): bracket the exact open sequence with
+                            // timestamps -- this is the moment the reported crash lines up with.
+                            Output::send<LogLevel::Normal>(
+                                    STR("[LivingBaseSpawnMenu] StandaloneWindow: opening (ShowWindow+"
+                                        "SetForegroundWindow), frame={} tick={}\n"),
+                                    g_diagFrameCounter, nowTick);
                             ShowWindow(hwnd, SW_SHOW);
                             // Remember who had focus before we take it -- see ReturnFocusToGame()'s
                             // own comment (2026-08-23).
                             g_previous_foreground_window = GetForegroundWindow();
                             SetForegroundWindow(hwnd);
+                            Output::send<LogLevel::Normal>(
+                                    STR("[LivingBaseSpawnMenu] StandaloneWindow: opened, tick={}\n"),
+                                    GetTickCount64());
                         }
                     }
                 }
@@ -534,7 +577,23 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 // only ever open, never close. Checked via ImGui's own key state instead, same
                 // pattern MoveMenu.cpp's pollKeyboard() already uses for its arrow-key shortcuts --
                 // no round trip through Lua needed for this direction.
-                if (ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false))
+                // RE-CONFIRMED NEEDED (2026-10-12): briefly removed on the theory that Lua was
+                // reliably receiving the key regardless of focus (an earlier log session SEEMED to
+                // show that), but removing it left '-' doing nothing at all while this window has
+                // focus -- RedFalcon confirmed live ("pressing - in the window doesnt do anything
+                // anymore"). The real cause of the original open/close loop is more subtle: hiding
+                // this window via ShowWindow(SW_HIDE) below hands OS focus back to the game as a
+                // side effect, and if the physical key is still down at that instant, the game
+                // receives a freshly-redelivered keydown for it -- which Lua's RegisterKeyBind sees
+                // as a brand-new press and immediately reopens the window (no delay guard applies
+                // since the window now reads as closed). The actual fix is a debounce in main.lua's
+                // toggleWindow handler, not removing this check -- see that file's own comment.
+                // COOLDOWN ADDED (2026-10-12): a held key re-fires this check every time the window
+                // regains focus after hiding (see g_lastVisibilityToggleTick's own comment) -- share
+                // the same cooldown the toggle_seq branch above uses so a rapid/held press can't
+                // bounce this specific path on its own, independent of anything Lua does.
+                if (ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false) &&
+                    GetTickCount64() - g_lastVisibilityToggleTick >= VISIBILITY_TOGGLE_COOLDOWN_MS)
                 {
                     if (MenuStatus::TimeBusy())
                     {
@@ -542,6 +601,7 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                     }
                     else
                     {
+                        g_lastVisibilityToggleTick = GetTickCount64();
                         ShowWindow(hwnd, SW_HIDE);
                     }
                 }
@@ -913,7 +973,43 @@ namespace RC::LivingBaseSpawnMenu::StandaloneWindow
                 g_device_context->ClearRenderTargetView(g_render_target_view.Get(), clear_color);
                 ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-                g_swap_chain->Present(1, 0);
+                // DIAGNOSTIC (2026-10-12, RTX 50-series crash investigation): Present()'s result was
+                // never checked -- this thread calls it every frame, forever, from mod load, regardless
+                // of window visibility (see ThreadMain's own startup-delay comment for why). If the
+                // driver ever fails/hangs this call specifically, we had zero visibility into it. Log
+                // any non-S_OK result once (not every frame after, to avoid spam if it starts failing
+                // repeatedly) plus the device-removed reason if that's what happened.
+                {
+                    HRESULT presentHr = g_swap_chain->Present(1, 0);
+                    static bool loggedPresentFailure = false;
+                    if (FAILED(presentHr) && !loggedPresentFailure)
+                    {
+                        loggedPresentFailure = true;
+                        HRESULT removedReason = g_device ? g_device->GetDeviceRemovedReason() : S_OK;
+                        Output::send<LogLevel::Error>(
+                                STR("[LivingBaseSpawnMenu] StandaloneWindow: Present() FAILED hr={:#010x} "
+                                    "deviceRemovedReason={:#010x} frame={} tick={}\n"),
+                                static_cast<unsigned long>(presentHr), static_cast<unsigned long>(removedReason),
+                                g_diagFrameCounter, GetTickCount64());
+                    }
+                }
+
+                // DIAGNOSTIC (2026-10-12): heartbeat so a hang shows up as "last line was N seconds
+                // before the crash dump's own timestamp" instead of silence -- this thread's loop
+                // continuing to log proves it (not some other thread) is still alive and ticking.
+                ++g_diagFrameCounter;
+                {
+                    static ULONGLONG lastHeartbeatTick = 0;
+                    const ULONGLONG nowTick = GetTickCount64();
+                    if (nowTick - lastHeartbeatTick >= 2000)
+                    {
+                        lastHeartbeatTick = nowTick;
+                        Output::send<LogLevel::Normal>(
+                                STR("[LivingBaseSpawnMenu] StandaloneWindow: heartbeat frame={} tick={} "
+                                    "visible={}\n"),
+                                g_diagFrameCounter, nowTick, IsWindowVisible(hwnd) ? 1 : 0);
+                    }
+                }
             }
 
             // Before the device itself is torn down below -- every cached SRV/texture in

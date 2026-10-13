@@ -237,6 +237,9 @@ The last two tabs are Instructions and History. Instructions contains this docum
 ![instructions_and_history_01.png]
 ![instructions_and_history_02.png]
 
+## Known Issues
+- NVIDIA DLSS Multi Frame Generation (3x/4x) can crash the game when opening this window, confirmed on an RTX 50-series card. This window runs its own separate rendering device specifically to avoid interfering with the game's own graphics, but Multi Frame Generation's frame-interpolation pipeline appears unable to tolerate a second window presenting alongside it regardless. If you experience a crash the moment this menu opens (Numpad -), try lowering DLSS Frame Generation to 2x or turning it off entirely in Windrose's graphics settings. Standard (non-multi) Frame Generation has not shown this issue.
+
 ## Credits and Attribution
 Living Base Enhanced is an unofficial, unaffiliated fan project for Windrose. Windrose itself, its game assets, class names, and all related IP belong to Kraken Express.
 - Living Base (original mod) - This project started as a fork of Living Base by me123420 - thank you to them for the original concept and toolkit, and for open-sourcing it into the public domain in the first place.
