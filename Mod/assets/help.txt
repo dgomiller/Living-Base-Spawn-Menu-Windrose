@@ -181,7 +181,13 @@ NOTE: Changes in this tab are not saved real time as this caused consistent cras
     - Pose List - On the left hand side is a list of various poses and actions. Clicking + next to one will assign it to the targeted person.
     - Current Pose - Displays what pose is currently running.
     - Player Controls - These allow the pausing and playing of the pose or action, as well as frame skipping and scrubbing with a slider. A paused animation is saved and persists between loads.
-    - Hand Dropdowns - Allows placement of items and weapons in people's hands. The four dropdown categories are for organization; only one item may be assigned to each hand.
+    - Hand Item List - This list contains various items that can be put into an actor's hands. Just find the item and click + next to it.
+    - Hand Item Transform - Sometimes an item does not spawn in the hand properly due to misalignment of the attachment socket. To combat this, the Hand Item Transform section allows the rotation, movement, and scaling of items based on the hand, so the transform stays in place when animated. Controls are the same as all the other locations where items or actors can be transformed.
+![customize_13.png]
+> Before:
+![customize_14.png]
+> After:
+![customize_15.png]
 
 ## Signs / Labels
 To help with organization or even to just provide ambience with road or building signs, Living Base Enhanced allows adding text to several in-game build objects as well as other spawnable decor objects.
@@ -203,16 +209,16 @@ To help with organization or even to just provide ambience with road or building
 ## Photo Mode
 Inspired by Cyberpunk 2077's Appearance Menu Mod and being shocked at the lack of a photo mode in a game in 2026, Photo Mode allows for taking fun pictures in the world and provides tools to hopefully allow for a large range of options.
 ![photo_mode_01.png]
-+ Camera Mode - Photo Mode includes three custom cameras to get the picture you want. Any placement and changes to the camera location are remembered until their specific "Reset" button is pressed.
++ Camera Mode - Photo Mode includes three custom cameras to get the picture you want. Tripod and First Person remember your previous settings until "reset" is pressed.
   - Tripod - As the name implies, this is a stationary camera that allows the player to stand in front of it. To set the initial position, stand and face approximately where you want the camera to look and then press the "Tripod" button. This will set the camera in that exact spot with that exact rotation. Zooming out and reentering tripod view will not reset placement. If "Reset" is hit, the camera will move to the player's location as if it were the initial trigger.
 ![photo_mode_02.png]
-  - Selfie - Points the camera in the direction of the player's face.
-> NOTE: This view can be a bit flaky and can crash at times.
+  - Selfie - Points the camera in the direction of the player and follows the face/orbits behind. The "<", "|", and ">" buttons change the view to be over the left and right shoulders and straight on. Scroll wheel zooms in and out on the view.
+> NOTE: There is no way to make the player's face look at the camera when looking over the shoulder.
 ![photo_mode_03.png]
   - First Person - Set the camera inside the player's head, allowing visibility as if viewing via the player pawn's eyes.
 ![photo_mode_04.png]
 + Target Highlight - Disables the highlight function used while targeting to ensure clean pictures.
-+ Movement Buttons - Allows the camera to be shifted around to improve the view. Can also be used for the Custom tab camera views as well.
++ Movement Buttons - Allows the camera to be shifted around to improve the view (except for Selfie mode). Can be used for the Custom tab camera views as well.
 + Rotation Buttons - Allows rotation of the camera. Same availability as the movement buttons.
 + FOV - Changes the Field of View. Allows "zooming in" without moving. Can distort the image at extremes.
 + Precision - Same as Spawn / Move tab's precision but applies to the camera.
