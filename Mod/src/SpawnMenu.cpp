@@ -138,6 +138,26 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
             current->index = index;
         }
 
+        // Alphabetizes a node's children (case-insensitive, mixed branches/leaves) and recurses
+        // into every one of them. Deliberately NOT applied to g_root itself -- the top-level
+        // category list (People/Decor/Signs/Custom/...) stays in whatever order spawn_menu.ini's
+        // sections happen to appear in, which is the one level RedFalcon wants to keep manually
+        // curated (2026-10-13: "I want the top levels to be manually set, but anything under each
+        // level can be programmatically alphabetized"). Everything below that is free to reorder
+        // on every Reload() with zero risk -- display order has always been pure file/child order
+        // (see parse_ini's own comment), completely separate from the roster:index pair that
+        // spawn_menu.ini actually depends on for correctness.
+        auto sort_subtree_alpha(MenuNode& node) -> void
+        {
+            std::sort(node.children.begin(), node.children.end(), [](const auto& a, const auto& b) {
+                return to_lower(a->label) < to_lower(b->label);
+            });
+            for (auto& child : node.children)
+            {
+                sort_subtree_alpha(*child);
+            }
+        }
+
         // Minimal INI parser matching exactly what spawnmenu_manifest.lua writes: `[dotted.path]`
         // section headers, `key = value` lines for `roster`/`index` (label is redundant with the
         // path's own last segment by construction, so not separately needed here). Deliberately
@@ -189,6 +209,11 @@ namespace RC::LivingBaseSpawnMenu::SpawnMenu
                 }
             }
             flush();
+
+            for (auto& top : g_root.children)
+            {
+                sort_subtree_alpha(*top);
+            }
         }
 
         // verb: "SPAWN" or "REPLACE" -- see main.lua's pollSpawnMenuRequest for the grammar this
