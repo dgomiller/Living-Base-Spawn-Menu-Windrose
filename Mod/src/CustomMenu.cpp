@@ -4017,6 +4017,19 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         f << value << "\n";
     }
 
+    // Selfie's left/center/right shoulder presets (2026-10-14) -- writes directly onto the live
+    // native camera actor's SideOffset variable (Spawner.SetSelfieSide), a one-shot trunc write same
+    // as FOV above, not an append queue like Move/Rotate (this is a "jump to this preset" action, not
+    // an accumulating nudge).
+    constexpr const char* PHOTOCAM_SELFIE_SIDE_REQUEST_PATH = "ue4ss/Mods/LivingBase/custom_photocam_selfie_side_request.txt";
+    constexpr float kSelfieSideOffsetUU = 35.0f; // RedFalcon's own tuned value, found live via lbsetsideoffset
+    auto WriteSelfieSideRequest(float value) -> void
+    {
+        std::ofstream f(PHOTOCAM_SELFIE_SIDE_REQUEST_PATH, std::ios::trunc);
+        if (!f) { return; }
+        f << value << "\n";
+    }
+
     // "Toggle Target Highlight" (2026-09-23, RedFalcon: "a button... click it swaps between showing
     // and hiding the highlights used when targeting something for a cleaner picture") -- its own
     // small always-on status file (main.lua's BeltStrapPolls.publishHighlightStatus), separate from
@@ -4174,11 +4187,19 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         pollHighlightStatus();
 
         const bool placementActive = MenuStatus::IsPlacementActive();
-        // hasTripodOrSelfie gates Rotate/FOV/Coords (things only the shared CameraActor supports);
-        // hasAnyCam gates the move pad/Reset -- First Person gets those too now (positional-offset
-        // Reset + move, see spawner.lua's own PhotoCamSetMode/MoveFirstPersonRelative).
+        // hasTripodOrSelfie gates FOV (the one control that still applies to Selfie's own native
+        // camera, since CameraComponent.FieldOfView is a plain reflection write regardless of which
+        // actor class owns the component -- see Spawner.SetTripodFOV/SetSelfieFOV). hasAnyCam gates
+        // Target Highlight only now. Move pad/Rotate/Coords/the old per-mode Reset are Tripod (+
+        // FirstPerson for Move specifically) ONLY as of 2026-10-14 -- Selfie moved to its own native
+        // Blueprint camera (BP_SelfieCameraPoC) with its own Distance (scroll wheel) and SideOffset
+        // (the </|/> row below) instead of the shared tripod-actor offset model, and that actor has
+        // no Move/Rotate/Coords equivalent wired up (RedFalcon's own call -- FOV was the one worth
+        // keeping, the rest wasn't).
         const bool hasTripodOrSelfie = (g_photoCamMode == PhotoCamMode::Tripod) || (g_photoCamMode == PhotoCamMode::Selfie);
         const bool hasAnyCam = hasTripodOrSelfie || (g_photoCamMode == PhotoCamMode::FirstPerson);
+        const bool hasTripodOnly = (g_photoCamMode == PhotoCamMode::Tripod);
+        const bool hasTripodOrFirstPerson = hasTripodOnly || (g_photoCamMode == PhotoCamMode::FirstPerson);
         // A Custom-tab camera view (Decor View / Full Body / Face View) also activates the move pad, Rotate, FOV and Reset (2026-10-01, RedFalcon) -- but NOT
         // Coords, Selfie or Target Highlight (hasAnyCam / the Tripod-only gates are left exactly as they were).
         const bool hasCustomView = (g_photoCamMode == PhotoCamMode::CustomView);
@@ -4249,8 +4270,19 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         if (ImGui::Button("Reset##tripod", ImVec2(thirdW, kCamBtnH))) { WritePhotoCamModeRequest("RESET"); }
         ImGui::EndDisabled();
         ImGui::SameLine();
+        // Selfie's row (2026-10-14): three shoulder presets instead of a Reset button -- the native
+        // camera has no accumulated offset to reset back to (Distance/SideOffset both start fresh at
+        // their class defaults on every spawn, see Spawner.SpawnSelfieCamera), so "Reset" never meant
+        // anything here anymore. "<"/"|"/">" jump straight to left/center/right shoulder framing.
         ImGui::BeginDisabled(g_photoCamMode != PhotoCamMode::Selfie || restoreOrPlacementBlocked);
-        if (ImGui::Button("Reset##selfie", ImVec2(thirdW, kCamBtnH))) { WritePhotoCamModeRequest("RESET"); }
+        {
+            const float selfieThirdW = (thirdW - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
+            if (ImGui::Button("<##selfieleft", ImVec2(selfieThirdW, kCamBtnH))) { WriteSelfieSideRequest(-kSelfieSideOffsetUU); }
+            ImGui::SameLine();
+            if (ImGui::Button("|##selfiecenter", ImVec2(selfieThirdW, kCamBtnH))) { WriteSelfieSideRequest(0.0f); }
+            ImGui::SameLine();
+            if (ImGui::Button(">##selfieright", ImVec2(selfieThirdW, kCamBtnH))) { WriteSelfieSideRequest(kSelfieSideOffsetUU); }
+        }
         ImGui::EndDisabled();
         ImGui::SameLine();
         ImGui::BeginDisabled(g_photoCamMode != PhotoCamMode::FirstPerson || restoreOrPlacementBlocked);
@@ -4312,7 +4344,9 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         const float moveStep = kCamMoveStepUU * CAM_PRECISION_SCALES[g_camPrecisionIdx];
         const float rotateStep = kCamRotateStepDeg * CAM_PRECISION_SCALES[g_camPrecisionIdx];
         const float padW = (avail - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
-        ImGui::BeginDisabled(!(hasAnyCam || hasCustomView) || placementActive || MenuStatus::IsRestoring());
+        // Move pad is Tripod/FirstPerson only as of 2026-10-14 (Selfie's native camera has no offset
+        // model to move) -- hasTripodOrFirstPerson, not the broader hasAnyCam.
+        ImGui::BeginDisabled(!(hasTripodOrFirstPerson || hasCustomView) || placementActive || MenuStatus::IsRestoring());
         {
             ImGui::PushButtonRepeat(true);
             ImGui::Dummy(ImVec2(padW, kCamBtnH));
@@ -4334,7 +4368,7 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
 
         ImGui::Spacing();
 
-        ImGui::BeginDisabled(!(hasAnyCam || hasCustomView) || placementActive || MenuStatus::IsRestoring());
+        ImGui::BeginDisabled(!(hasTripodOrFirstPerson || hasCustomView) || placementActive || MenuStatus::IsRestoring());
         ImGui::PushButtonRepeat(true);
         if (ImGui::Button("Up", ImVec2(padW, kCamBtnH))) { QueuePhotoCamMove("up", moveStep); }
         ImGui::SameLine();
@@ -4364,7 +4398,9 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
         // MoveMenu.cpp's own Rotate section, X/Y/Z = Roll/Pitch/Yaw (Unreal's own FRotator
         // convention, matching that file's axisRow exactly). Roll is genuinely new here (spawner.lua
         // previously only tracked pitch/yaw offset -- see Spawner._photoCamOffsets' own header).
-        ImGui::BeginDisabled(!(hasTripodOrSelfie || hasCustomView) || placementActive || MenuStatus::IsRestoring());
+        // Tripod-only as of 2026-10-14 (not hasTripodOrSelfie) -- Selfie's native camera has no
+        // rotate offset wired up, same call as the Move pad above.
+        ImGui::BeginDisabled(!(hasTripodOnly || hasCustomView) || placementActive || MenuStatus::IsRestoring());
         {
             ImGui::TextUnformatted("Rotate");
             ImGui::PushButtonRepeat(true);
@@ -4390,7 +4426,11 @@ namespace RC::LivingBaseSpawnMenu::CustomMenu
             ImGui::PopButtonRepeat();
         }
         ImGui::EndDisabled();
-        if (!hasTripodOrSelfie && hasAnyCam)
+        // 2026-10-14: was "!hasTripodOrSelfie && hasAnyCam" -- now that Rotate is Tripod-only, that
+        // condition would also (wrongly) show a "First Person" hint while Selfie is active. Gate on
+        // FirstPerson specifically so Selfie's Rotate row just greys out silently, same as Coords
+        // already does for it.
+        if (g_photoCamMode == PhotoCamMode::FirstPerson)
         {
             ImGui::TextDisabled("(First Person: rotation is mouse-only)");
         }
